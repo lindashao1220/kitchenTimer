@@ -27,8 +27,11 @@ class CircleTimer {
     this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
     this.g.shader(this.metaballShader);
     this.metaballs = [];
-    // Store color variations for each metaball for neon effect
+    // Store color variations for each metaball for watercolor effect
     this.metaballColors = [];
+    // Generate a base hue offset for this timer instance
+    const baseHueOffset = random(0, 360);
+
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
       this.metaballs.push({
@@ -37,12 +40,34 @@ class CircleTimer {
         vel: p5.Vector.random2D().mult(random(1, 3)),
         baseRadius: this.radius * baseSize
       });
-      // Create color variation for each metaball (neon effect)
-      const colorVar = random(-30, 30);
+
+      // Generate soft multicolor pastel palette
+      // Using HSB-like logic but converting to RGB manually
+      // Hue: distributed around the circle or random
+      // Saturation: Low-Medium (to be pastel) ~ 0.4-0.6
+      // Brightness: High ~ 0.8-1.0
+
+      let h = (baseHueOffset + map(i, 0, this.metaballCount, 0, 360) + random(-30, 30)) % 360;
+      let s = random(0.4, 0.6);
+      let b = random(0.9, 1.0);
+
+      // HSB to RGB conversion
+      let c = b * s;
+      let x = c * (1 - Math.abs((h / 60) % 2 - 1));
+      let m = b - c;
+
+      let r, g, bl;
+      if (h < 60) { r = c; g = x; bl = 0; }
+      else if (h < 120) { r = x; g = c; bl = 0; }
+      else if (h < 180) { r = 0; g = c; bl = x; }
+      else if (h < 240) { r = 0; g = x; bl = c; }
+      else if (h < 300) { r = x; g = 0; bl = c; }
+      else { r = c; g = 0; bl = x; }
+
       this.metaballColors.push([
-        constrain(this.fillColor[0] + colorVar, 0, 255),
-        constrain(this.fillColor[1] + colorVar, 0, 255),
-        constrain(this.fillColor[2] + colorVar, 0, 255)
+        (r + m) * 255,
+        (g + m) * 255,
+        (bl + m) * 255
       ]);
     }
     // Number of overlapping layers for neon glow effect
@@ -192,8 +217,15 @@ class CircleTimer {
       ];
 
       g.shader(this.metaballShader);
+      // Flatten and normalize metaball colors
+      const flatColors = [];
+      for(let c of this.metaballColors) {
+        flatColors.push(c[0]/255, c[1]/255, c[2]/255);
+      }
+
       this.metaballShader.setUniform("uResolution", [w, h]);
       this.metaballShader.setUniform("metaballs", data);
+      this.metaballShader.setUniform("metaballColors", flatColors);
       this.metaballShader.setUniform("uColor", layerColor);
       this.metaballShader.setUniform("uThreshold", 1.0);
       this.metaballShader.setUniform("uCenter", [w * 0.5, h * 0.5]);
@@ -223,11 +255,17 @@ class CircleTimer {
       precision highp float;
       varying vec2 vTexCoord;
       uniform vec3 metaballs[${this.metaballCount}];
+      uniform vec3 metaballColors[${this.metaballCount}];
       uniform vec2 uResolution;
       uniform vec4 uColor;
       uniform float uThreshold;
       uniform vec2 uCenter;
       uniform float uRadius;
+
+      // Simple noise function for texture
+      float random (vec2 st) {
+          return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
+      }
 
       void main() {
         float x = vTexCoord.x * uResolution.x;
@@ -239,23 +277,45 @@ class CircleTimer {
         }
 
         float v = 0.0;
+        vec3 accumColor = vec3(0.0);
+        float totalWeight = 0.0;
+
+        // Watercolor diffusion: add noise to position lookup or texture
+        vec2 noisePos = vec2(x, y) * 0.05; // Scale for noise texture
+        float n = random(noisePos);
+
         for (int i = 0; i < ${this.metaballCount}; i++) {
           vec3 ball = metaballs[i];
           float dx = ball.x - x;
           float dy = ball.y - y;
           float r = ball.z;
-          v += r * r / (dx * dx + dy * dy + 1e-5);
+          float influence = r * r / (dx * dx + dy * dy + 1e-5);
+          v += influence;
+
+          accumColor += metaballColors[i] * influence;
+          totalWeight += influence;
         }
         
-        // Create smooth falloff for neon glow effect
-        float glow = smoothstep(uThreshold * 0.8, uThreshold * 1.2, v);
+        vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
-        if (v >= uThreshold * 0.8) {
-          // Add glow effect with distance-based intensity
+        // Add some noise to the threshold for "watercolor" paper/bleeding effect
+        // Modulate threshold slightly with noise to create irregular edges
+        float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+
+        if (v >= threshold) {
           float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
           float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
-          float finalAlpha = uColor.a * glow * (0.5 + 0.5 * edgeGlow);
-          gl_FragColor = vec4(uColor.rgb, finalAlpha);
+
+          // Soften the alpha based on field strength v (simulating watercolor accumulation)
+          float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
+
+          // Use uColor.a as the base alpha control from the JS side
+          float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
+
+          // Slight color modulation with noise for texture
+          vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+
+          gl_FragColor = vec4(finalColor, finalAlpha);
         } else {
           gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         }
