@@ -128,56 +128,34 @@ class CircleTimer {
     strokeWeight(2);
     circle(this.x, this.y, this.radius * 2);
 
-    const progress = this.getProgress();
+    let progress = this.getProgress();
+    let globalAlpha = 1.0;
     
     // If timer is complete, shrink the filled circle over 10 seconds
     if (this.isComplete) {
       const shrinkElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      const shrinkT = constrain(shrinkElapsed / 10000, 0, 1); // 10s shrink duration
-      const shrinkRadius = this.radius * (1 - shrinkT);
-      if (shrinkRadius <= 0.5) {
+      const shrinkDuration = 10000;
+      const shrinkT = constrain(shrinkElapsed / shrinkDuration, 0, 1);
+      
+      // Calculate display progress for shrink (1.0 -> 0.0)
+      progress = 1.0 - shrinkT;
+      
+      // Fade out effect
+      globalAlpha = 1.0 - shrinkT;
+
+      if (shrinkT >= 1.0) {
+        this.g.clear();
         return; // fully shrunk
       }
-      noStroke();
-      
-      // Create radial gradient for soft, blurred effect
-      // Outer edge is more transparent (shallower), center is more opaque
-      const ctx = drawingContext;
-      const gradient = ctx.createRadialGradient(
-        this.x, this.y, 0,                    // Center point (inner circle)
-        this.x, this.y, shrinkRadius          // Outer circle
-      );
-      
-      // Get base color - use same as blob (without time variations)
-      const baseR = this.fillColor[0] || 90;
-      const baseG = this.fillColor[1] || 100;
-      const baseB = this.fillColor[2] || 22;
-      
-      // Calculate effective alpha to match blob's appearance
-      // Blob uses 5 layers with 0.08 alpha each in BLEND mode
-      // Approximate effective alpha: 1 - (1 - 0.08)^5 ≈ 0.34
-      // But for visual matching, we'll use a value that looks similar
-      const effectiveAlpha = 0.5; // Matches blob's cumulative alpha effect
-      
-      // Center: same opacity as blob
-      gradient.addColorStop(0, `rgba(${baseR}, ${baseG}, ${baseB}, ${effectiveAlpha})`);
-      // Outer edge: very transparent (shallower)
-      gradient.addColorStop(1, `rgba(${baseR}, ${baseG}, ${baseB}, 0)`);
-      
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, shrinkRadius, 0, TWO_PI);
-      ctx.fill();
-      return;
     }
 
     // Render metaball-style blob into offscreen buffer, then draw it centered
-    this.renderMetaballs(progress);
+    this.renderMetaballs(progress, globalAlpha);
     imageMode(CENTER);
     image(this.g, this.x, this.y);
   }
 
-  renderMetaballs(progress) {
+  renderMetaballs(progress, globalAlpha = 1.0) {
     const g = this.g;
     const p = constrain(progress, 0, 1);
     if (p <= 0) {
@@ -189,7 +167,19 @@ class CircleTimer {
     const data = [];
     const w = g.width;
     const h = g.height;
+    const center = createVector(w / 2, h / 2);
+
     for (let mb of this.metaballs) {
+
+      // Add centripetal force if shrinking
+      if (globalAlpha < 1.0) {
+        let dir = p5.Vector.sub(center, mb.pos);
+        dir.normalize();
+        dir.mult(0.5); // Attraction strength
+        mb.vel.add(dir);
+        mb.vel.limit(3);
+      }
+
       mb.pos.add(mb.vel);
       if (mb.pos.x < mb.baseRadius || mb.pos.x > w - mb.baseRadius) mb.vel.x *= -1;
       if (mb.pos.y < mb.baseRadius || mb.pos.y > h - mb.baseRadius) mb.vel.y *= -1;
@@ -209,11 +199,15 @@ class CircleTimer {
       // This creates smooth, consistent variations without flickering
       // Similar to reference code's random(-25,25) but time-based
       const colorVar = sin(time * 0.5 + layer * 0.7) * 25 + cos(time * 0.3 + layer) * 15;
+
+      // Apply globalAlpha to the layer alpha
+      const currentAlpha = this.blobAlpha * globalAlpha;
+
       const layerColor = [
         constrain(this.fillColor[0] + colorVar, 0, 255) / 255,
         constrain(this.fillColor[1] + colorVar * 0.8, 0, 255) / 255,
         constrain(this.fillColor[2] + colorVar * 1.2, 0, 255) / 255,
-        this.blobAlpha // Alpha for neon glow effect - easily accessible via this.blobAlpha
+        currentAlpha
       ];
 
       g.shader(this.metaballShader);
