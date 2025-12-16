@@ -8,12 +8,16 @@ let mode = 'LANDING'; // 'LANDING', 'SETUP', or 'ACTIVE'
 let durationInput = 5; // The actual value
 let lastSensorValue1 = -1; // To track sensor changes
 
-// Animation variables for the rolling effect
-let displayValue = 5;
-let oldDisplayValue = 5;
+// Animation variables for the split-flap effect
 let animationStartTime = 0;
 let isAnimating = false;
 const animationDuration = 300; // ms
+
+// Split-flap buffers
+let flapBufferCurrent;
+let flapBufferNext;
+const flapWidth = 200;
+const flapHeight = 300;
 
 // Serial communication globals
 let serial;
@@ -41,6 +45,25 @@ function setup() {
   
   textSize(32);
   textAlign(CENTER, CENTER);
+  
+  // Initialize split-flap buffers
+  flapBufferCurrent = createGraphics(flapWidth, flapHeight);
+  flapBufferNext = createGraphics(flapWidth, flapHeight);
+  drawNumberToBuffer(flapBufferCurrent, durationInput);
+  drawNumberToBuffer(flapBufferNext, durationInput);
+}
+
+function drawNumberToBuffer(pg, val) {
+  pg.background(40); // Dark card background
+  pg.fill(255);
+  pg.textSize(100);
+  pg.textAlign(CENTER, CENTER);
+  pg.noStroke();
+  pg.text(val, pg.width/2, pg.height/2);
+  // Add a thin line in the middle for the split
+  pg.stroke(0);
+  pg.strokeWeight(4);
+  pg.line(0, pg.height/2, pg.width, pg.height/2);
 }
 
 function startNewTimer() {
@@ -97,55 +120,85 @@ function windowResized() {
 
 function drawSetup() {
   // Check if we need to start an animation
-  fill(255);
-  textSize(100);
-  
   if (isAnimating) {
     let elapsed = millis() - animationStartTime;
     let t = constrain(elapsed / animationDuration, 0, 1);
     
-    // Smooth stepping (ease out)
-    t = 1 - Math.pow(1 - t, 3);
+    // Smooth stepping (ease out) could use cubic, but linear is often better for mechanical feel
+    // t = 1 - Math.pow(1 - t, 3); 
     
-    let offset = height * 0.2 * t; // Move by 20% of height
-    
-    let direction = (displayValue > oldDisplayValue) ? 1 : -1;
-    
-    // Draw Old Value moving away
-    let oldY = height / 2 - (direction * offset * 5); // Amplify movement to clear screen
-    let oldAlpha = map(t, 0, 0.5, 255, 0); // Fade out quickly
-    
-    fill(255, 255, 255, oldAlpha);
-    text(oldDisplayValue, width / 2, oldY);
-    
-    // Draw New Value entering
-    let startNewY = height / 2 + (direction * height * 0.5); 
-    let targetNewY = height / 2;
-    let currentNewY = lerp(startNewY, targetNewY, t);
-    
-    fill(255, 255, 255, 255); 
-    text(displayValue, width / 2, currentNewY);
+    drawSplitFlap(flapBufferCurrent, flapBufferNext, t, width / 2, height / 2);
     
     if (t >= 1) {
       isAnimating = false;
     }
   } else {
     // Static display
-    text(durationInput, width / 2, height / 2);
+    imageMode(CENTER);
+    image(flapBufferNext, width / 2, height / 2);
   }
   
   textSize(24);
   fill(150);
-  text("Setup Mode", width / 2, height / 2 - 100);
+  text("Setup Mode", width / 2, height / 2 - 200);
   textSize(16);
-  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + 80);
+  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + 150);
+}
+
+function drawSplitFlap(currentImg, nextImg, progress, x, y) {
+  const w = currentImg.width;
+  const h = currentImg.height;
+  
+  push();
+  translate(x, y);
+  imageMode(CORNER);
+  
+  // 1. Top Half of Next (Upper Back) - Static
+  image(nextImg, -w/2, -h/2, w, h/2, 0, 0, w, h/2);
+  
+  // 2. Bottom Half of Current (Lower Back) - Static
+  image(currentImg, -w/2, 0, w, h/2, 0, h/2, w, h/2);
+  
+  // 3. The Flap
+  if (progress < 0.5) {
+     // First half: Top half of Current folds down
+     let s = map(progress, 0, 0.5, 1, 0);
+     push();
+     scale(1, s); // Pivot is effectively at y=0 because we draw from -h/2 to 0
+     image(currentImg, -w/2, -h/2, w, h/2, 0, 0, w, h/2);
+     
+     // Shadow/Darkening as it falls
+     fill(0, map(progress, 0, 0.5, 0, 150));
+     noStroke();
+     rect(-w/2, -h/2, w, h/2);
+     pop();
+  } else {
+     // Second half: Bottom half of Next falls down
+     let s = map(progress, 0.5, 1, 0, 1);
+     push();
+     scale(1, s);
+     image(nextImg, -w/2, 0, w, h/2, 0, h/2, w, h/2);
+     
+     // Shadow/Lightening as it arrives
+     fill(0, map(progress, 0.5, 1, 150, 0));
+     noStroke();
+     rect(-w/2, 0, w, h/2);
+     pop();
+  }
+  
+  pop();
 }
 
 function updateDuration(newValue) {
   if (newValue !== durationInput) {
-    oldDisplayValue = durationInput;
+    // Capture current state into current buffer
+    drawNumberToBuffer(flapBufferCurrent, durationInput);
+    
+    // Update value
     durationInput = newValue;
-    displayValue = durationInput;
+    
+    // Prepare next buffer
+    drawNumberToBuffer(flapBufferNext, durationInput);
     
     // Trigger animation
     isAnimating = true;
