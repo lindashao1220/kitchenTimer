@@ -61,12 +61,26 @@ function setup() {
   console.log("Setup finished");
 }
 
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  // Update timer position if active
+  if (timer) {
+    timer.x = width / 2;
+    timer.y = height / 2;
+  }
+  background(30); // clear background immediately
+}
+
 function startNewTimer() {
-  // Use current targetValue as the duration, or ensure we settle?
-  // User might hit start while it's rolling. Let's use targetValue.
+  // Use current targetValue as the duration
   let duration = targetValue || 5;
   const color = [255, 255, 255];
-  timer = new CircleTimer(duration, width / 2, height / 2, 300, color);
+
+  // Responsive radius: 30% of the smaller screen dimension, but clamp it reasonable
+  let r = min(width, height) * 0.3;
+  r = constrain(r, 100, 400); // Min 100px, Max 400px radius
+
+  timer = new CircleTimer(duration, width / 2, height / 2, r, color);
   timer.start();
   mode = 'ACTIVE';
 }
