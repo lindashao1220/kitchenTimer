@@ -271,7 +271,7 @@ function drawSetup() {
   fill(150);
   text("Setup Mode", width / 2, height / 2 - 200);
   textSize(16);
-  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + 200);
+  text("Keys: 1 (+), 2 (-), F (Fullscreen), SPACE (Start)", width / 2, height / 2 + 200);
 }
 
 function updateTarget(newTarget) {
@@ -280,12 +280,23 @@ function updateTarget(newTarget) {
 }
 
 function keyPressed() {
+  // Toggle fullscreen
+  if (key === 'f' || key === 'F') {
+    let fs = fullscreen();
+    fullscreen(!fs);
+  }
+
   if (mode === 'SETUP') {
     if (key === '1') {
       updateTarget(targetValue + 1);
     } else if (key === '2') {
       updateTarget(targetValue - 1);
     } else if (key === ' ') {
+      // Force fullscreen on start
+      let fs = fullscreen();
+      if (!fs) {
+        fullscreen(true);
+      }
       startNewTimer();
     }
   } else if (mode === 'ACTIVE') {
