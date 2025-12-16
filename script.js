@@ -2,7 +2,7 @@
 //https://editor.p5js.org/Sophi333/sketches/2f2tUOTEB
 
 let timer = null;
-let mode = 'SETUP'; // 'SETUP' or 'ACTIVE'
+let mode = 'LANDING'; // 'LANDING', 'SETUP', or 'ACTIVE'
 
 // Timer settings
 let durationInput = 5; // The actual value
@@ -57,7 +57,9 @@ function startNewTimer() {
 function draw() {
   background(30);
   
-  if (mode === 'SETUP') {
+  if (mode === 'LANDING') {
+    drawLanding();
+  } else if (mode === 'SETUP') {
     drawSetup();
   } else if (mode === 'ACTIVE') {
     if (timer) {
@@ -72,6 +74,25 @@ function draw() {
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
   textAlign(CENTER, CENTER);
+}
+
+function drawLanding() {
+  fill(255);
+  textSize(32);
+  text("Press 's' to enter Full Screen", width / 2, height / 2);
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  if (timer) {
+    timer.x = width / 2;
+    timer.y = height / 2;
+  }
+
+  // If we exited full screen (and not just starting up), go back to landing
+  if (!fullscreen() && mode !== 'LANDING') {
+    mode = 'LANDING';
+  }
 }
 
 function drawSetup() {
@@ -133,7 +154,12 @@ function updateDuration(newValue) {
 }
 
 function keyPressed() {
-  if (mode === 'SETUP') {
+  if (mode === 'LANDING') {
+    if (key === 's' || key === 'S') {
+      fullscreen(true);
+      mode = 'SETUP';
+    }
+  } else if (mode === 'SETUP') {
     if (key === '1') {
       updateDuration(durationInput + 1);
     } else if (key === '2') {
