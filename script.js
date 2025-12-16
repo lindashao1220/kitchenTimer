@@ -58,7 +58,23 @@ function setup() {
 
   textSize(32);
   textAlign(CENTER, CENTER);
+
+  // Attempt to enable fullscreen on load (note: browsers often block this without interaction)
+  try {
+    fullscreen(true);
+  } catch (e) {
+    console.log("Auto-fullscreen blocked by browser, waiting for interaction.");
+  }
+
   console.log("Setup finished");
+}
+
+function mousePressed() {
+  // Ensure we are in fullscreen on any click
+  let fs = fullscreen();
+  if (!fs) {
+    fullscreen(true);
+  }
 }
 
 function windowResized() {
@@ -286,17 +302,20 @@ function keyPressed() {
     fullscreen(!fs);
   }
 
+  // Enforce fullscreen on interaction keys
+  if (['1', '2', ' '].includes(key)) {
+    let fs = fullscreen();
+    if (!fs) {
+      fullscreen(true);
+    }
+  }
+
   if (mode === 'SETUP') {
     if (key === '1') {
       updateTarget(targetValue + 1);
     } else if (key === '2') {
       updateTarget(targetValue - 1);
     } else if (key === ' ') {
-      // Force fullscreen on start
-      let fs = fullscreen();
-      if (!fs) {
-        fullscreen(true);
-      }
       startNewTimer();
     }
   } else if (mode === 'ACTIVE') {
