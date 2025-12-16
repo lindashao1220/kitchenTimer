@@ -73,7 +73,7 @@ class CircleTimer {
     // Number of overlapping layers for neon glow effect
     this.neonLayers = 5;
     // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
-    this.blobAlpha = 0.3;
+    this.blobAlpha = 0.9;
   }
 
   start() {

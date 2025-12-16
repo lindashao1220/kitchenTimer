@@ -1,9 +1,19 @@
 //more reference: https://openprocessing.org/sketch/773556
 //https://editor.p5js.org/Sophi333/sketches/2f2tUOTEB
 
-
 let timer = null;
-let durationInput;
+let mode = 'SETUP'; // 'SETUP' or 'ACTIVE'
+
+// Timer settings
+let durationInput = 5; // The actual value
+let lastSensorValue1 = -1; // To track sensor changes
+
+// Animation variables for the rolling effect
+let displayValue = 5;
+let oldDisplayValue = 5;
+let animationStartTime = 0;
+let isAnimating = false;
+const animationDuration = 300; // ms
 
 // Serial communication globals
 let serial;
@@ -19,59 +29,128 @@ function setup() {
   background(30);
 
   // Initialize serial connection
-  serial = new p5.SerialPort();
-  serial.on("list", gotList);
-  serial.on("data", gotData);
-  serial.list();
-  serial.open(portName);
+  try {
+    serial = new p5.SerialPort();
+    serial.on("list", gotList);
+    serial.on("data", gotData);
+    serial.list();
+    serial.open(portName);
+  } catch (e) {
+    console.log("Serial Port not available or failed to initialize: ", e);
+  }
+  
   textSize(32);
   textAlign(CENTER, CENTER);
-  
-  // Create input field for duration
-  durationInput = createInput('5');
-  durationInput.position(20, 20);
-  durationInput.size(100);
-  durationInput.attribute('type', 'number');
-  durationInput.attribute('min', '1');
-  durationInput.attribute('placeholder', 'Duration (seconds)');
-  
-  // Create label for duration input
-  let durationLabel = createElement('label', 'Duration (seconds):');
-  durationLabel.position(20, 0);
-  durationLabel.style('color', 'white');
-  durationLabel.style('font-family', 'Arial');
-
-  // Create start button
-  let startButton = createButton('Start Timer');
-  startButton.position(20, 50);
-  startButton.mousePressed(startNewTimer);
 }
 
 function startNewTimer() {
-  let duration = parseFloat(durationInput.value()) || 5;
+  // durationInput is now a number
+  let duration = durationInput || 5;
   // Use a fixed color (greenish) with transparency handled in CircleTimer
   const color = [255, 255, 255];
   // Increase radius for a larger initial circle
   timer = new CircleTimer(duration, width / 2, height / 2, 300, color);
   timer.start();
+  mode = 'ACTIVE';
 }
 
 function draw() {
   background(30);
-  // Update and draw single timer
-  if (timer) {
-    timer.update();
-    timer.draw();
+  
+  if (mode === 'SETUP') {
+    drawSetup();
+  } else if (mode === 'ACTIVE') {
+    if (timer) {
+      timer.update();
+      timer.draw();
+    }
   }
 
   // Show incoming sensor values
+  fill(100);
+  textSize(12);
+  textAlign(LEFT, BOTTOM);
+  text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
+  textAlign(CENTER, CENTER);
+}
+
+function drawSetup() {
+  // Check if we need to start an animation
   fill(255);
+  textSize(100);
+  
+  if (isAnimating) {
+    let elapsed = millis() - animationStartTime;
+    let t = constrain(elapsed / animationDuration, 0, 1);
+    
+    // Smooth stepping (ease out)
+    t = 1 - Math.pow(1 - t, 3);
+    
+    let offset = height * 0.2 * t; // Move by 20% of height
+    
+    let direction = (displayValue > oldDisplayValue) ? 1 : -1;
+    
+    // Draw Old Value moving away
+    let oldY = height / 2 - (direction * offset * 5); // Amplify movement to clear screen
+    let oldAlpha = map(t, 0, 0.5, 255, 0); // Fade out quickly
+    
+    fill(255, 255, 255, oldAlpha);
+    text(oldDisplayValue, width / 2, oldY);
+    
+    // Draw New Value entering
+    let startNewY = height / 2 + (direction * height * 0.5); 
+    let targetNewY = height / 2;
+    let currentNewY = lerp(startNewY, targetNewY, t);
+    
+    fill(255, 255, 255, 255); 
+    text(displayValue, width / 2, currentNewY);
+    
+    if (t >= 1) {
+      isAnimating = false;
+    }
+  } else {
+    // Static display
+    text(durationInput, width / 2, height / 2);
+  }
+  
   textSize(24);
-  text(sensorValue1, width / 2, height / 2 - 40);
-  text(sensorValue2, width / 2, height / 2);
-  textSize(14);
-  text("Sensor 1", width / 2, height / 2 - 60);
-  text("Sensor 2", width / 2, height / 2 - 20);
+  fill(150);
+  text("Setup Mode", width / 2, height / 2 - 100);
+  textSize(16);
+  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + 80);
+}
+
+function updateDuration(newValue) {
+  if (newValue !== durationInput) {
+    oldDisplayValue = durationInput;
+    durationInput = newValue;
+    displayValue = durationInput;
+    
+    // Trigger animation
+    isAnimating = true;
+    animationStartTime = millis();
+  }
+}
+
+function keyPressed() {
+  if (mode === 'SETUP') {
+    if (key === '1') {
+      updateDuration(durationInput + 1);
+    } else if (key === '2') {
+      // Prevent going below 1
+      if (durationInput > 1) {
+        updateDuration(durationInput - 1);
+      }
+    } else if (key === ' ') {
+      startNewTimer();
+    }
+  } else if (mode === 'ACTIVE') {
+    // Optional: SPACE to reset?
+    if (key === ' ') {
+      mode = 'SETUP';
+      if (timer) timer.reset();
+    }
+  }
 }
 
 // ------------------------------------------------------------------
@@ -103,40 +182,21 @@ function gotData() {
       sensorValue1 = int(inMessage[0]);
       sensorValue2 = int(inMessage[1]);
 
-      // Let sensorValue1 control the duration input (keep it numeric and >=1)
-      if (durationInput) {
-        const durVal = max(1, sensorValue1);
-        durationInput.value(durVal);
+      if (mode === 'SETUP') {
+         if (sensorValue1 !== lastSensorValue1) {
+             let newVal = max(1, sensorValue1);
+             updateDuration(newVal);
+             lastSensorValue1 = sensorValue1;
+         }
       }
 
       // If sensorValue2 is 0, trigger start (debounced on change to 0)
       if (sensorValue2 === 0 && lastSensor2 !== 0) {
-        startNewTimer();
+        if (mode === 'SETUP') {
+          startNewTimer();
+        }
       }
       lastSensor2 = sensorValue2;
-
-      // Log the updated values
-      console.log("Received: ", sensorValue1, ",", sensorValue2);
     }
   }
 }
-
-
-
-// ------------------------------------------------------------------
-
-// Send '1' to the Arduino when the mouse is pressed
-// function mousePressed() {
-//   if (serial) {
-//     serial.write("1");
-//     console.log("Sent: 1");
-//   }
-// }
-
-// // Send '0' to the Arduino when the mouse is released
-// function mouseReleased() {
-//   if (serial) {
-//     serial.write("0");
-//     console.log("Sent: 0");
-//   }
-// }
