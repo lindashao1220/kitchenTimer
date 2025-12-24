@@ -62,7 +62,8 @@ class CircleTimer {
     this.blobAlpha = 0.9;
 
     // --- Beyond Timer Setup (Rainbow Rings) ---
-    this.beyondCount = 20;
+    // User requested centered, non-random growth. We only need 1 source ball for a single ring.
+    this.beyondCount = 1;
     this.gBeyond = createGraphics(width, height, WEBGL);
     this.gBeyond.noStroke();
     this.gBeyond.pixelDensity(1);
@@ -95,27 +96,29 @@ class CircleTimer {
           this.isComplete = true;
           if (this.completionTime === null) {
             this.completionTime = millis();
-
-            // Initialize Beyond Balls spawning from center
-            for (let i = 0; i < this.beyondCount; i++) {
-                 const size = Math.pow(Math.random(), 2);
-                 const vel = p5.Vector.random2D().mult(8 * (1 - size) + 2);
-                 const r = 100 * size + 20;
-                 this.beyondBalls.push({
-                     pos: createVector(this.x, this.y),
-                     vel: vel,
-                     radius: r
-                 });
-            }
           }
         }
     } else {
-        // Update Beyond Balls logic
-        for (let b of this.beyondBalls) {
-            b.pos.add(b.vel);
-            if (b.pos.x < b.radius || b.pos.x > width - b.radius) b.vel.x *= -1;
-            if (b.pos.y < b.radius || b.pos.y > height - b.radius) b.vel.y *= -1;
+        // Update Beyond Logic: Expand single ring from center
+        const expandElapsed = millis() - this.completionTime;
+        const expandSeconds = expandElapsed / 1000.0;
+        const targetTime = 100.0; // 100 seconds to fill screen
+        const maxCorner = dist(width/2, height/2, 0, 0);
+
+        // Linear growth logic
+        let growth = 0;
+        if (targetTime > 0) {
+            growth = (expandSeconds / targetTime) * (maxCorner - this.radius);
         }
+
+        const currentR = this.radius + growth;
+
+        // Update the single beyond ball
+        this.beyondBalls = [{
+            pos: createVector(this.x, this.y),
+            vel: createVector(0, 0), // No velocity
+            radius: currentR
+        }];
     }
   }
 
@@ -128,7 +131,6 @@ class CircleTimer {
   draw() {
     let progress = this.getProgress();
     // Clamp progress for the inner timer so it doesn't keep growing
-    // "what it grows out to fill the circle stay there" -> keeps max filled state
     progress = constrain(progress, 0, 1);
 
     // Draw Inner Timer (Background Layer)
@@ -186,13 +188,6 @@ class CircleTimer {
     const h = g.height;
 
     for (let mb of this.metaballs) {
-      // Basic wobble for inner balls
-      let pos = mb.pos.copy();
-      pos.add(mb.vel);
-      // We aren't persistently updating position in 'update' for inner balls in this snippet version
-      // In original code, update() didn't update ball positions. draw() did 'pos.add(vel)'.
-      // But we need persistent position state.
-      // Let's modify the loop to update the stored pos, like original
       mb.pos.add(mb.vel);
 
       let boundR = currentRadius;
@@ -324,7 +319,6 @@ class CircleTimer {
   }
 
   beyondVert() {
-    // Same vertex shader logic
     return `
       attribute vec3 aPosition;
       attribute vec2 aTexCoord;
@@ -363,16 +357,17 @@ class CircleTimer {
           float dx = ball.x - x;
           float dy = ball.y - y;
           float r = ball.z;
-          v += r * r / (dx * dx + dy * dy);
+          // Standard metaball influence field: r^2 / d^2
+          v += r * r / (dx * dx + dy * dy + 1e-5);
         }
 
-        // Visual logic from OpenProcessing sketch
-        // Range 0.9 < v < 1.1 creates the "ring"
+        // Ring logic: 0.9 < v < 1.1
+        // As r increases, the distance d where v=1 increases (d=r).
+        // So the ring expands as r expands.
         if (0.9 < v && v < 1.1) {
           float a = (v - 0.9) * 4.0;
           gl_FragColor = vec4(hsv2rgb(vec3(a, 1.0, 1.0)), 1.0);
         } else {
-          // Transparent background
           gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         }
       }
