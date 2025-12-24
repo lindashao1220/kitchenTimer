@@ -1,6 +1,7 @@
 class CircleTimer {
-  constructor(duration, x, y, radius, color) {
+  constructor(duration, beyondDurationMinutes, x, y, radius, color) {
     this.duration = duration * 1000;
+    this.beyondDuration = (beyondDurationMinutes || 1) * 60 * 1000;
     this.x = x;
     this.y = y;
     this.radius = radius;
@@ -153,8 +154,8 @@ class CircleTimer {
 
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
       // "Slowly growing"
-      // Let's say it takes 30 seconds to reach full screen fuzziness
-      const growDuration = 30000;
+      // Use the configured beyondDuration for the growth speed
+      const growDuration = this.beyondDuration;
       const t = constrain(beyondElapsed / growDuration, 0, 1);
       
       // Progress stays 1.0 (full size metaballs)
