@@ -5,19 +5,11 @@ let timer = null;
 let mode = 'LANDING'; // 'LANDING', 'SETUP', or 'ACTIVE'
 
 // Timer settings
-let durationInput = 5; // The actual value
+let durationInput = 5; // The actual value in seconds
 let lastSensorValue1 = -1; // To track sensor changes
 
-// Animation variables for the split-flap effect
-let animationStartTime = 0;
-let isAnimating = false;
-const animationDuration = 300; // ms
-
-// Split-flap buffers
-let flapBufferCurrent;
-let flapBufferNext;
-const flapWidth = 200;
-const flapHeight = 300;
+// Smooth transition for setup circle
+let currentDisplayRadius = 0;
 
 // Serial communication globals
 let serial;
@@ -46,33 +38,23 @@ function setup() {
   textSize(32);
   textAlign(CENTER, CENTER);
   
-  // Initialize split-flap buffers
-  flapBufferCurrent = createGraphics(flapWidth, flapHeight);
-  flapBufferNext = createGraphics(flapWidth, flapHeight);
-  drawNumberToBuffer(flapBufferCurrent, durationInput);
-  drawNumberToBuffer(flapBufferNext, durationInput);
-}
-
-function drawNumberToBuffer(pg, val) {
-  pg.background(40); // Dark card background
-  pg.fill(255);
-  pg.textSize(100);
-  pg.textAlign(CENTER, CENTER);
-  pg.noStroke();
-  pg.text(val, pg.width/2, pg.height/2);
-  // Add a thin line in the middle for the split
-  pg.stroke(0);
-  pg.strokeWeight(4);
-  pg.line(0, pg.height/2, pg.width, pg.height/2);
+  // Initialize currentDisplayRadius to match durationInput initially
+  let maxRadius = min(width, height) / 2;
+  currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
 }
 
 function startNewTimer() {
-  // durationInput is now a number
+  // durationInput is now a number in seconds
   let duration = durationInput || 5;
-  // Use a fixed color (greenish) with transparency handled in CircleTimer
   const color = [255, 255, 255];
-  // Increase radius for a larger initial circle
-  timer = new CircleTimer(duration, width / 2, height / 2, 300, color);
+
+  // Calculate radius based on duration (Reference: Full screen radius = 60 seconds)
+  // Use currentDisplayRadius for seamless transition if needed,
+  // but better to use the exact target for the timer.
+  let maxRadius = min(width, height) / 2;
+  let r = map(duration, 0, 60, 0, maxRadius);
+
+  timer = new CircleTimer(duration, width / 2, height / 2, r, color);
   timer.start();
   mode = 'ACTIVE';
 }
@@ -119,106 +101,52 @@ function windowResized() {
 }
 
 function drawSetup() {
-  // Check if we need to start an animation
-  if (isAnimating) {
-    let elapsed = millis() - animationStartTime;
-    let t = constrain(elapsed / animationDuration, 0, 1);
-    
-    // Smooth stepping (ease out) could use cubic, but linear is often better for mechanical feel
-    // t = 1 - Math.pow(1 - t, 3); 
-    
-    drawSplitFlap(flapBufferCurrent, flapBufferNext, t, width / 2, height / 2);
-    
-    if (t >= 1) {
-      isAnimating = false;
-    }
-  } else {
-    // Static display
-    imageMode(CENTER);
-    image(flapBufferNext, width / 2, height / 2);
-  }
+  // Calculate target radius
+  let maxRadius = min(width, height) / 2;
+  let targetRadius = map(durationInput, 0, 60, 0, maxRadius);
+  
+  // Smoothly interpolate currentDisplayRadius towards targetRadius
+  // lerp factor 0.1 gives a nice slide
+  currentDisplayRadius = lerp(currentDisplayRadius, targetRadius, 0.1);
+  
+  // Draw preview circle using smoothed radius
+  noFill();
+  stroke(255);
+  strokeWeight(2);
+  circle(width / 2, height / 2, currentDisplayRadius * 2);
+  
+  // Draw duration text
+  fill(255);
+  noStroke();
+  textSize(32);
+  text(durationInput + "s", width / 2, height / 2);
   
   textSize(24);
   fill(150);
-  text("Setup Mode", width / 2, height / 2 - 200);
+  text("Setup Mode", width / 2, height / 2 - maxRadius - 40);
   textSize(16);
-  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + 150);
+  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + maxRadius + 40);
 }
 
-function drawSplitFlap(currentImg, nextImg, progress, x, y) {
-  const w = currentImg.width;
-  const h = currentImg.height;
-  
-  push();
-  translate(x, y);
-  imageMode(CORNER);
-  
-  // 1. Top Half of Next (Upper Back) - Static
-  image(nextImg, -w/2, -h/2, w, h/2, 0, 0, w, h/2);
-  
-  // 2. Bottom Half of Current (Lower Back) - Static
-  image(currentImg, -w/2, 0, w, h/2, 0, h/2, w, h/2);
-  
-  // 3. The Flap
-  if (progress < 0.5) {
-     // First half: Top half of Current folds down
-     let s = map(progress, 0, 0.5, 1, 0);
-     push();
-     scale(1, s); // Pivot is effectively at y=0 because we draw from -h/2 to 0
-     image(currentImg, -w/2, -h/2, w, h/2, 0, 0, w, h/2);
-     
-     // Shadow/Darkening as it falls
-     fill(0, map(progress, 0, 0.5, 0, 150));
-     noStroke();
-     rect(-w/2, -h/2, w, h/2);
-     pop();
-  } else {
-     // Second half: Bottom half of Next falls down
-     let s = map(progress, 0.5, 1, 0, 1);
-     push();
-     scale(1, s);
-     image(nextImg, -w/2, 0, w, h/2, 0, h/2, w, h/2);
-     
-     // Shadow/Lightening as it arrives
-     fill(0, map(progress, 0.5, 1, 150, 0));
-     noStroke();
-     rect(-w/2, 0, w, h/2);
-     pop();
-  }
-  
-  pop();
-}
-
-function updateDuration(newValue) {
-  if (newValue !== durationInput) {
-    // Capture current state into current buffer
-    drawNumberToBuffer(flapBufferCurrent, durationInput);
-    
-    // Update value
-    durationInput = newValue;
-    
-    // Prepare next buffer
-    drawNumberToBuffer(flapBufferNext, durationInput);
-    
-    // Trigger animation
-    isAnimating = true;
-    animationStartTime = millis();
-  }
-}
 
 function keyPressed() {
   if (mode === 'LANDING') {
     if (key === 's' || key === 'S') {
       fullscreen(true);
       mode = 'SETUP';
+      // Reset radius when entering setup to ensure it starts from correct size (or animate from 0?)
+      // Let's keep it continuous or reset to current duration
+      let maxRadius = min(width, height) / 2;
+      currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
     }
   } else if (mode === 'SETUP') {
     if (key === '1') {
-      updateDuration(durationInput + 1);
+      // Increase duration
+      durationInput++;
     } else if (key === '2') {
-      // Prevent going below 1
+      // Decrease duration
       if (durationInput > 1) {
-        updateDuration(durationInput - 1);
+        durationInput--;
       }
     } else if (key === ' ') {
       startNewTimer();
@@ -264,7 +192,7 @@ function gotData() {
       if (mode === 'SETUP') {
          if (sensorValue1 !== lastSensorValue1) {
              let newVal = max(1, sensorValue1);
-             updateDuration(newVal);
+             durationInput = newVal;
              lastSensorValue1 = sensorValue1;
          }
       }
