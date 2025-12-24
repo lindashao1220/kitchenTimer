@@ -20,6 +20,7 @@ let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
 
 function setup() {
+  console.log("Running setup...");
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
   background(30);
@@ -70,6 +71,21 @@ function draw() {
     if (timer) {
       timer.update();
       timer.draw();
+
+      if (timer.isComplete) {
+         let elapsed = millis() - timer.completionTime;
+         // Round to 1 decimal place? Or just seconds. User said "beyond 1 second".
+         let seconds = floor(elapsed / 1000);
+
+         push();
+         fill(0); // Dark text to contrast with light timer
+         stroke(255);
+         strokeWeight(3);
+         textSize(50);
+         textAlign(CENTER, CENTER);
+         text(`Beyond ${seconds} seconds`, width/2, height/2);
+         pop();
+      }
     }
   }
 
