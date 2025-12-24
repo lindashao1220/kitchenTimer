@@ -94,13 +94,6 @@ class CircleTimer {
   }
 
   draw() {
-    if (!this.isComplete) {
-        noFill();
-        stroke(this.strokeColor);
-        strokeWeight(2);
-        circle(this.x, this.y, this.radius * 2);
-    }
-
     let progress = this.getProgress();
     let globalAlpha = 1.0;
     let currentRadius = this.radius;
@@ -137,6 +130,12 @@ class CircleTimer {
     imageMode(CORNER);
     image(this.g, 0, 0);
     pop();
+
+    // Always draw the static boundary circle on top
+    noFill();
+    stroke(this.strokeColor);
+    strokeWeight(2);
+    circle(this.x, this.y, this.radius * 2);
   }
 
   renderMetaballs(progress, globalAlpha = 1.0, currentRadius, blobAddSize = 0) {
