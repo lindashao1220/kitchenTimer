@@ -17,6 +17,7 @@ class CircleTimer {
     }
     this.strokeColor = [255];
     
+    // --- Inner Timer Setup (Filled Metaballs) ---
     this.metaballCount = 12;
     this.g = createGraphics(width, height, WEBGL);
     this.g.noStroke();
@@ -25,8 +26,8 @@ class CircleTimer {
     this.g.shader(this.metaballShader);
     this.metaballs = [];
     this.metaballColors = [];
-    const baseHueOffset = random(0, 360);
     
+    const baseHueOffset = random(0, 360);
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
       this.metaballs.push({
@@ -59,18 +60,30 @@ class CircleTimer {
     }
     this.neonLayers = 5;
     this.blobAlpha = 0.9;
+
+    // --- Beyond Timer Setup (Rainbow Rings) ---
+    this.beyondCount = 20;
+    this.gBeyond = createGraphics(width, height, WEBGL);
+    this.gBeyond.noStroke();
+    this.gBeyond.pixelDensity(1);
+    this.beyondShader = this.gBeyond.createShader(this.beyondVert(), this.beyondFrag());
+    this.gBeyond.shader(this.beyondShader);
+    this.beyondBalls = [];
   }
 
   start() {
     this.startTime = millis();
     this.isRunning = true;
     this.isComplete = false;
+    this.completionTime = null;
+    this.beyondBalls = [];
   }
 
   reset() {
     this.startTime = null;
     this.isRunning = false;
     this.isComplete = false;
+    this.beyondBalls = [];
   }
 
   update() {
@@ -82,7 +95,26 @@ class CircleTimer {
           this.isComplete = true;
           if (this.completionTime === null) {
             this.completionTime = millis();
+
+            // Initialize Beyond Balls spawning from center
+            for (let i = 0; i < this.beyondCount; i++) {
+                 const size = Math.pow(Math.random(), 2);
+                 const vel = p5.Vector.random2D().mult(8 * (1 - size) + 2);
+                 const r = 100 * size + 20;
+                 this.beyondBalls.push({
+                     pos: createVector(this.x, this.y),
+                     vel: vel,
+                     radius: r
+                 });
+            }
           }
+        }
+    } else {
+        // Update Beyond Balls logic
+        for (let b of this.beyondBalls) {
+            b.pos.add(b.vel);
+            if (b.pos.x < b.radius || b.pos.x > width - b.radius) b.vel.x *= -1;
+            if (b.pos.y < b.radius || b.pos.y > height - b.radius) b.vel.y *= -1;
         }
     }
   }
@@ -95,47 +127,51 @@ class CircleTimer {
 
   draw() {
     let progress = this.getProgress();
-    let globalAlpha = 1.0;
-    let currentRadius = this.radius;
-    let blobAddSize = 0;
-    
-    if (this.isComplete) {
-      const expandElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      
-      // "the whole screen will be 100 sec"
-      // Map 100 seconds of expansion to reach the screen corners from the starting radius
-      const expandSeconds = expandElapsed / 1000.0;
-      const targetTime = 100.0;
-      const maxCorner = dist(width/2, height/2, 0, 0);
-      
-      // Linearly interpolate growth such that at 100s, currentRadius = maxCorner
-      let growth = 0;
-      if (targetTime > 0) {
-        growth = (expandSeconds / targetTime) * (maxCorner - this.radius);
-      }
+    // Clamp progress for the inner timer so it doesn't keep growing
+    // "what it grows out to fill the circle stay there" -> keeps max filled state
+    progress = constrain(progress, 0, 1);
 
-      currentRadius = this.radius + growth;
-
-      progress = 1.0 + (expandSeconds / targetTime);
-      // Scale metaballs proportionally to fill the expanding space
-      blobAddSize = growth * 0.8;
-
-    } else {
-        progress = constrain(progress, 0, 1);
-    }
-
-    this.renderMetaballs(progress, globalAlpha, currentRadius, blobAddSize);
-
+    // Draw Inner Timer (Background Layer)
+    this.renderMetaballs(progress, 1.0, this.radius, 0);
     push();
     imageMode(CORNER);
     image(this.g, 0, 0);
     pop();
 
-    // Always draw the static boundary circle on top
+    // Draw Beyond Timer (Overlay Layer)
+    if (this.isComplete && this.beyondBalls.length > 0) {
+        this.renderBeyond();
+        push();
+        imageMode(CORNER);
+        image(this.gBeyond, 0, 0);
+        pop();
+    }
+
+    // Draw Static Boundary Stroke on Top
     noFill();
     stroke(this.strokeColor);
     strokeWeight(2);
     circle(this.x, this.y, this.radius * 2);
+  }
+
+  renderBeyond() {
+    const g = this.gBeyond;
+    g.clear();
+
+    const data = [];
+    const w = g.width;
+    const h = g.height;
+
+    for (const ball of this.beyondBalls) {
+        data.push(ball.pos.x, ball.pos.y, ball.radius);
+    }
+
+    this.beyondShader.setUniform("metaballs", data);
+    this.beyondShader.setUniform("uResolution", [w, h]);
+
+    g.rectMode(CENTER);
+    g.noStroke();
+    g.rect(0, 0, w, h);
   }
 
   renderMetaballs(progress, globalAlpha = 1.0, currentRadius, blobAddSize = 0) {
@@ -150,6 +186,13 @@ class CircleTimer {
     const h = g.height;
 
     for (let mb of this.metaballs) {
+      // Basic wobble for inner balls
+      let pos = mb.pos.copy();
+      pos.add(mb.vel);
+      // We aren't persistently updating position in 'update' for inner balls in this snippet version
+      // In original code, update() didn't update ball positions. draw() did 'pos.add(vel)'.
+      // But we need persistent position state.
+      // Let's modify the loop to update the stored pos, like original
       mb.pos.add(mb.vel);
 
       let boundR = currentRadius;
@@ -198,6 +241,8 @@ class CircleTimer {
       g.rect(0, 0, w, h);
     }
   }
+
+  // --- Shaders ---
 
   metaballVert() {
     return `
@@ -272,6 +317,62 @@ class CircleTimer {
           
           gl_FragColor = vec4(finalColor, finalAlpha);
         } else {
+          gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        }
+      }
+    `;
+  }
+
+  beyondVert() {
+    // Same vertex shader logic
+    return `
+      attribute vec3 aPosition;
+      attribute vec2 aTexCoord;
+      varying vec2 vTexCoord;
+      void main() {
+        vTexCoord = aTexCoord;
+        vec4 positionVec4 = vec4(aPosition, 1.0);
+        positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+        gl_Position = positionVec4;
+      }
+    `;
+  }
+
+  beyondFrag() {
+    return `
+      precision highp float;
+      varying vec2 vTexCoord;
+
+      // Matches this.beyondCount
+      uniform vec3 metaballs[${this.beyondCount}];
+      uniform vec2 uResolution;
+
+      vec3 hsv2rgb(vec3 c) {
+          vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+          vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+          return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+      }
+
+      void main() {
+        float x = vTexCoord.x * uResolution.x;
+        float y = vTexCoord.y * uResolution.y;
+        float v = 0.0;
+
+        for (int i = 0; i < ${this.beyondCount}; i++) {
+          vec3 ball = metaballs[i];
+          float dx = ball.x - x;
+          float dy = ball.y - y;
+          float r = ball.z;
+          v += r * r / (dx * dx + dy * dy);
+        }
+
+        // Visual logic from OpenProcessing sketch
+        // Range 0.9 < v < 1.1 creates the "ring"
+        if (0.9 < v && v < 1.1) {
+          float a = (v - 0.9) * 4.0;
+          gl_FragColor = vec4(hsv2rgb(vec3(a, 1.0, 1.0)), 1.0);
+        } else {
+          // Transparent background
           gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         }
       }
