@@ -71,8 +71,17 @@ function startNewTimer() {
   let duration = durationInput || 5;
   // Use a fixed color (greenish) with transparency handled in CircleTimer
   const color = [255, 255, 255];
-  // Increase radius for a larger initial circle
-  timer = new CircleTimer(duration, width / 2, height / 2, 300, color);
+
+  // Calculate radius based on duration (1 min = full screen)
+  // Full screen is min(width, height)
+  // So radius = (duration / 60) * (min(width, height) / 2)
+  let maxRadius = min(width, height) / 2;
+  let radius = map(duration, 0, 60, 0, maxRadius);
+
+  // Ensure a minimum visibility
+  radius = max(radius, 10);
+
+  timer = new CircleTimer(duration, width / 2, height / 2, radius, color);
   timer.start();
   mode = 'ACTIVE';
 }
@@ -137,6 +146,16 @@ function drawSetup() {
     imageMode(CENTER);
     image(flapBufferNext, width / 2, height / 2);
   }
+
+  // Draw preview circle
+  let maxRadius = min(width, height) / 2;
+  let previewRadius = map(durationInput, 0, 60, 0, maxRadius);
+  previewRadius = max(previewRadius, 10);
+
+  noFill();
+  stroke(255, 150);
+  strokeWeight(4);
+  circle(width / 2, height / 2, previewRadius * 2);
   
   textSize(24);
   fill(150);
