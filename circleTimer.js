@@ -8,6 +8,8 @@ class CircleTimer {
     this.isRunning = false;
     this.isComplete = false;
     this.completionTime = null; // track when the timer finished for shrink-out
+    this.snapshotTaken = false;
+    this.staticBlurredImage = null;
 
     // Color & style
     this.bgColor = [200, 200, 200];
@@ -86,6 +88,12 @@ class CircleTimer {
     this.startTime = null;
     this.isRunning = false;
     this.isComplete = false;
+    this.completionTime = null;
+    this.snapshotTaken = false;
+    if (this.staticBlurredImage) {
+      this.staticBlurredImage.remove();
+      this.staticBlurredImage = null;
+    }
   }
 
   update() {
@@ -131,28 +139,100 @@ class CircleTimer {
     let progress = this.getProgress();
     let globalAlpha = 1.0;
     
-    // If timer is complete, shrink the filled circle over 10 seconds
+    // If timer is complete, trigger "Beyond" effect
     if (this.isComplete) {
-      const shrinkElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      const shrinkDuration = 10000;
-      const shrinkT = constrain(shrinkElapsed / shrinkDuration, 0, 1);
-      
-      // Calculate display progress for shrink (1.0 -> 0.0)
-      progress = 1.0 - shrinkT;
-      
-      // Fade out effect
-      globalAlpha = 1.0 - shrinkT;
+      if (!this.snapshotTaken) {
+        // Render one last time with full progress to ensure it's "full"
+        this.renderMetaballs(1.0, 1.0);
 
-      if (shrinkT >= 1.0) {
-        this.g.clear();
-        return; // fully shrunk
+        // Create a temporary 2D graphics buffer to apply blur
+        // This avoids issues with WEBGL filter support
+        if (this.staticBlurredImage) this.staticBlurredImage.remove();
+        this.staticBlurredImage = createGraphics(this.g.width, this.g.height);
+        this.staticBlurredImage.image(this.g, 0, 0);
+        this.staticBlurredImage.filter(BLUR, 8);
+
+        this.snapshotTaken = true;
       }
+      
+      // Draw the static, blurred inner circle
+      if (this.staticBlurredImage) {
+        imageMode(CENTER);
+        image(this.staticBlurredImage, this.x, this.y);
+      }
+
+      // Draw the "Beyond" visual effect (expanding rainbow ring)
+      this.drawBeyondEffect();
+      return;
     }
 
     // Render metaball-style blob into offscreen buffer, then draw it centered
     this.renderMetaballs(progress, globalAlpha);
     imageMode(CENTER);
     image(this.g, this.x, this.y);
+  }
+
+  drawBeyondEffect() {
+    const elapsed = this.completionTime ? millis() - this.completionTime : 0;
+    const duration = 100000; // 100 seconds
+    const progress = constrain(elapsed / duration, 0, 1);
+
+    // Calculate radius: starts from timer radius and expands to fill screen
+    // Max radius needs to cover the corners
+    const maxDimension = Math.max(width, height);
+    // Use diagonal to be safe: sqrt(w*w + h*h).
+    // Simply multiplying maxDimension by 1.0 might be enough if centered, but let's be generous.
+    const endRadius = Math.sqrt(width * width + height * height) * 0.6;
+
+    const currentRadius = lerp(this.radius, endRadius, progress);
+
+    const ctx = drawingContext;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // Create Neon Glow
+    ctx.shadowBlur = 40;
+    ctx.shadowColor = "rgba(200, 255, 200, 0.8)";
+
+    // Create Rainbow Gradient Ring
+    // We use a conic gradient to simulate the color shifting around the ring
+    // Colors based on the reference: Yellow, Green, Cyan loop
+    if (ctx.createConicGradient) {
+      // Rotate the gradient slowly over time for a living effect
+      const gradient = ctx.createConicGradient(millis() * 0.0005, 0, 0);
+      gradient.addColorStop(0, '#FFFF00');    // Yellow
+      gradient.addColorStop(0.25, '#00FF00'); // Green
+      gradient.addColorStop(0.5, '#00FFFF');  // Cyan
+      gradient.addColorStop(0.75, '#00FF00'); // Green
+      gradient.addColorStop(1, '#FFFF00');    // Yellow
+
+      ctx.strokeStyle = gradient;
+    } else {
+      // Fallback for browsers not supporting conic gradient
+      ctx.strokeStyle = '#00FF00';
+    }
+
+    // Draw the ring
+    // Increase line width as it grows? Or keep it thick.
+    // The reference shows a very thick, soft ring.
+    ctx.lineWidth = 60;
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    ctx.arc(0, 0, currentRadius, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Display "Beyond [seconds]" text
+    // We use standard p5 drawing for text
+    fill(255);
+    noStroke();
+    textSize(24);
+    textAlign(CENTER, CENTER);
+    // Format elapsed time in seconds
+    const beyondSeconds = Math.floor(elapsed / 1000);
+    text(`Beyond ${beyondSeconds}s`, this.x, this.y);
   }
 
   renderMetaballs(progress, globalAlpha = 1.0) {
