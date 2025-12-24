@@ -8,10 +8,13 @@ let mode = 'LANDING'; // 'LANDING', 'SETUP', or 'ACTIVE'
 let durationInput = 5; // The actual value in seconds
 let lastSensorValue1 = -1; // To track sensor changes
 
+// Smooth transition for setup circle
+let currentDisplayRadius = 0;
+
 // Serial communication globals
 let serial;
 // !! IMPORTANT: Replace this
-const portName = "/dev/tty.usbmodem101";
+const portName = "/dev/tty.usbmodem1101";
 let sensorValue1 = 0;
 let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
@@ -34,6 +37,10 @@ function setup() {
   
   textSize(32);
   textAlign(CENTER, CENTER);
+  
+  // Initialize currentDisplayRadius to match durationInput initially
+  let maxRadius = min(width, height) / 2;
+  currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
 }
 
 function startNewTimer() {
@@ -42,8 +49,9 @@ function startNewTimer() {
   const color = [255, 255, 255];
   
   // Calculate radius based on duration (Reference: Full screen radius = 60 seconds)
+  // Use currentDisplayRadius for seamless transition if needed, 
+  // but better to use the exact target for the timer.
   let maxRadius = min(width, height) / 2;
-  // Use map to determine radius. If duration > 60, radius will exceed screen, which is fine.
   let r = map(duration, 0, 60, 0, maxRadius);
   
   timer = new CircleTimer(duration, width / 2, height / 2, r, color);
@@ -93,15 +101,19 @@ function windowResized() {
 }
 
 function drawSetup() {
-  // Calculate preview radius
+  // Calculate target radius
   let maxRadius = min(width, height) / 2;
-  let previewRadius = map(durationInput, 0, 60, 0, maxRadius);
+  let targetRadius = map(durationInput, 0, 60, 0, maxRadius);
   
-  // Draw preview circle
+  // Smoothly interpolate currentDisplayRadius towards targetRadius
+  // lerp factor 0.1 gives a nice slide
+  currentDisplayRadius = lerp(currentDisplayRadius, targetRadius, 0.1);
+  
+  // Draw preview circle using smoothed radius
   noFill();
   stroke(255);
   strokeWeight(2);
-  circle(width / 2, height / 2, previewRadius * 2);
+  circle(width / 2, height / 2, currentDisplayRadius * 2);
   
   // Draw duration text
   fill(255);
@@ -122,6 +134,10 @@ function keyPressed() {
     if (key === 's' || key === 'S') {
       fullscreen(true);
       mode = 'SETUP';
+      // Reset radius when entering setup to ensure it starts from correct size (or animate from 0?)
+      // Let's keep it continuous or reset to current duration
+      let maxRadius = min(width, height) / 2;
+      currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
     }
   } else if (mode === 'SETUP') {
     if (key === '1') {
