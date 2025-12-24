@@ -204,10 +204,6 @@ class CircleTimer {
     // Blend mode BLEND works well for gradients on white if we use alpha correctly
     g.blendMode(BLEND);
     
-    // Just render one pass with the shader, the shader handles the "soft diffuse" look via gradient mixing
-    // But to get the "diffuse lighting" look, maybe 2 layers with slightly different thresholds?
-    // Let's stick to the single loop but optimize parameters
-
     const flatColors = [];
     for(let c of this.metaballColors) {
       flatColors.push(c[0]/255, c[1]/255, c[2]/255);
@@ -299,15 +295,18 @@ class CircleTimer {
         // Threshold for edge
         float threshold = uThreshold * 0.8;
 
+        // Glass texture: Add subtle white noise modulation
+        // On white background, adding white makes it lighter ("frosted")
+        vec3 texturedColor = mix(blendedColor, vec3(1.0), n * 0.2);
+
         if (uFuzziness > 0.0) {
             // Fuzzy mode
             float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
             float upperBound = threshold + (uFuzziness * 0.5);
 
             float alpha = smoothstep(lowerBound, upperBound, v);
-            vec3 finalColor = blendedColor;
 
-            gl_FragColor = vec4(finalColor, alpha * uAlphaScalar);
+            gl_FragColor = vec4(texturedColor, alpha * uAlphaScalar);
 
         } else {
             // Normal mode
@@ -317,11 +316,14 @@ class CircleTimer {
             if (alphaStrength > 0.01) {
               float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
 
-              // Edge glow (white rim or lighter)
-              // float edgeGlow = smoothstep(0.8, 1.0, distFromCenter);
-              // blendedColor = mix(blendedColor, vec3(1.0), edgeGlow * 0.5);
+              // Edge glow / Rim Light (white rim)
+              // Only apply if near the edge of the clipping circle
+              float edgeGlow = smoothstep(0.85, 1.0, distFromCenter);
 
-              gl_FragColor = vec4(blendedColor, alphaStrength * uAlphaScalar);
+              // Mix in white for the rim
+              vec3 finalColor = mix(texturedColor, vec3(1.0), edgeGlow * 0.6);
+
+              gl_FragColor = vec4(finalColor, alphaStrength * uAlphaScalar);
             } else {
               gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
             }
