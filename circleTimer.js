@@ -245,10 +245,16 @@ class CircleTimer {
       // Let's say max radius is larger than screen diagonal to ensure full coverage
       const maxDist = dist(0, 0, width, height) * 1.2;
       const currentR = progress * maxDist;
+      const time = millis() * 0.001;
 
       this.beyondShader.setUniform("uResolution", [width, height]);
       this.beyondShader.setUniform("uRadius", currentR);
       this.beyondShader.setUniform("uCenter", [width / 2, height / 2]);
+      this.beyondShader.setUniform("uTime", time);
+
+      // Pass the timer fill color (normalized)
+      const color = [this.fillColor[0]/255, this.fillColor[1]/255, this.fillColor[2]/255, 1.0];
+      this.beyondShader.setUniform("uColor", color);
 
       g.rectMode(CENTER);
       g.rect(0, 0, width, height);
@@ -368,6 +374,38 @@ class CircleTimer {
         uniform vec2 uResolution;
         uniform float uRadius;
         uniform vec2 uCenter;
+        uniform float uTime;
+        uniform vec4 uColor;
+
+        // Simplex 2D noise
+        // Source: https://github.com/stegu/webgl-noise/blob/master/src/noise2D.glsl
+        vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+
+        float snoise(vec2 v){
+          const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                   -0.577350269189626, 0.024390243902439);
+          vec2 i  = floor(v + dot(v, C.yy) );
+          vec2 x0 = v - i + dot(i, C.xx);
+          vec2 i1;
+          i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+          vec4 x12 = x0.xyxy + C.xxzz;
+          x12.xy -= i1;
+          i = mod(i, 289.0);
+          vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+          + i.x + vec3(0.0, i1.x, 1.0 ));
+          vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+          m = m*m ;
+          m = m*m ;
+          vec3 x = 2.0 * fract(p * C.www) - 1.0;
+          vec3 h = abs(x) - 0.5;
+          vec3 ox = floor(x + 0.5);
+          vec3 a0 = x - ox;
+          m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+          vec3 g;
+          g.x  = a0.x  * x0.x  + h.x  * x0.y;
+          g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+          return 130.0 * dot(m, g);
+        }
 
         vec3 hsv2rgb(vec3 c) {
             vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -376,58 +414,40 @@ class CircleTimer {
         }
 
         void main() {
-            float x = vTexCoord.x * uResolution.x;
-            float y = vTexCoord.y * uResolution.y; // p5 WEBGL usually flips Y, but let's check
-            // For standard p5 WEBGL texture coords: (0,0) is bottom-left or top-left depending on setup.
-            // But we use aTexCoord which goes 0 to 1.
-            // Let's assume standard orientation for now.
-            // Note: p5 sometimes flips Y when drawing to graphics.
-            // If uResolution.y is height, (0,0) is top-left in p5 2D, but in shader texture it might be bottom-left.
-            // Since it's a concentric ring, orientation doesn't matter much for X/Y.
+            vec2 uv = (vTexCoord - 0.5) * uResolution;
 
-            float v = 0.0;
+            float len = length(uv);
+            float angle = atan(uv.y, uv.x);
 
-            // Single growing source at uCenter
-            float dx = uCenter.x - x;
-            float dy = uCenter.y - (uResolution.y - y); // Fix Y if needed, let's try standard first.
-            // Actually, if we use aTexCoord, y=0 is bottom usually in GL, top in P5.
-            // But let's stick to simple distance.
-            // If we use vTexCoord directly:
-            // x = vTexCoord.x * WIDTH
-            // y = (1.0 - vTexCoord.y) * HEIGHT (p5 WEBGL weirdness sometimes) or just vTexCoord.y
+            float noiseScale = 0.005;
+            float timeScale = uTime * 0.5;
 
-            // Let's just use distance from center.
-            // uCenter is passed as [width/2, height/2].
-            // x, y are pixel coords.
-            // We need to match the coordinate system.
-            // Let's rely on dx*dx + dy*dy being distance squared.
+            // Create fluid distortion using noise
+            float n = snoise(uv * noiseScale + vec2(timeScale, timeScale));
+            float distortion = n * 50.0;
 
-            // Re-calculating y to match potential p5 flip
-            float py = (1.0 - vTexCoord.y) * uResolution.y;
+            float distToRing = abs(len - uRadius + distortion);
+            float thickness = 40.0 + 20.0 * sin(uTime * 2.0 + angle * 3.0);
 
-            float distSq = (uCenter.x - x) * (uCenter.x - x) + (uCenter.y - py) * (uCenter.y - py);
+            if (distToRing < thickness) {
+                // Interior of the blob/ring
 
-            // Metaball function: v = R^2 / D^2
-            // We want the ring to be at distance 'uRadius' from center.
-            // At distance D=uRadius, v should be 1.0.
-            // So v = uRadius^2 / distSq.
+                // Color mixing for pastel rainbow effect
+                float noiseVal = snoise(uv * 0.005 - vec2(timeScale * 0.5));
 
-            if (distSq > 0.0) {
-                v = (uRadius * uRadius) / distSq;
+                // Hue varies with angle and noise (0.0 to 1.0)
+                // Normalize angle (-PI to PI) to 0-1
+                float hue = fract(angle / 6.28 + uTime * 0.1 + noiseVal * 0.5);
+
+                // Pastel color: Saturation ~0.5, Brightness ~0.9
+                vec3 col = hsv2rgb(vec3(hue, 0.5, 0.95));
+
+                // Alpha falloff
+                float alpha = 1.0 - smoothstep(thickness * 0.7, thickness, distToRing);
+
+                gl_FragColor = vec4(col, alpha * 0.8);
             } else {
-                v = 1000.0; // Very high at center
-            }
-
-            // Rainbow ring logic from reference:
-            // if (0.9 < v && v < 1.1)
-
-            if (v > 0.9 && v < 1.1) {
-                float a = (v - 0.9) * 4.0; // Map 0.9-1.1 to 0.0-0.8 (approx) -> used as hue?
-                // Reference used: hsv2rgb(vec3(a, 1., 1.))
-                // 'a' varies from 0.0 to 0.8 over the band.
-                gl_FragColor = vec4(hsv2rgb(vec3(a, 1.0, 1.0)), 1.0);
-            } else {
-                gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0); // Transparent elsewhere
+                gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
       `;
