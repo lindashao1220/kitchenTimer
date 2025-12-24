@@ -108,15 +108,23 @@ class CircleTimer {
     
     if (this.isComplete) {
       const expandElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      const expandDuration = 4000;
-      const maxDim = max(width, height) * 1.5;
       
-      let t = expandElapsed / expandDuration;
-      let growth = t * t * maxDim;
+      // "the whole screen will be 100 sec"
+      // Map 100 seconds of expansion to reach the screen corners from the starting radius
+      const expandSeconds = expandElapsed / 1000.0;
+      const targetTime = 100.0;
+      const maxCorner = dist(width/2, height/2, 0, 0);
       
+      // Linearly interpolate growth such that at 100s, currentRadius = maxCorner
+      let growth = 0;
+      if (targetTime > 0) {
+        growth = (expandSeconds / targetTime) * (maxCorner - this.radius);
+      }
+
       currentRadius = this.radius + growth;
 
-      progress = 1.0 + t;
+      progress = 1.0 + (expandSeconds / targetTime);
+      // Scale metaballs proportionally to fill the expanding space
       blobAddSize = growth * 0.8;
 
     } else {
