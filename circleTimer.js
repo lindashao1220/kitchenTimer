@@ -74,6 +74,14 @@ class CircleTimer {
     this.neonLayers = 5;
     // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
     this.blobAlpha = 0.9;
+
+    // Beyond effect setup
+    // Using a separate full-screen buffer for the Beyond effect
+    this.beyondG = createGraphics(windowWidth, windowHeight, WEBGL);
+    this.beyondG.noStroke();
+    this.beyondG.pixelDensity(1);
+    this.beyondShader = this.beyondG.createShader(this.beyondVert(), this.beyondFrag());
+    this.beyondG.shader(this.beyondShader);
   }
 
   start() {
@@ -106,21 +114,6 @@ class CircleTimer {
     return constrain(elapsed / this.duration, 0, 1);
   }
 
-  // 多阶 noise 合成
-  layeredNoise(nx, ny, time) {
-    let sum = 0;
-    let amp = 1;
-    let freq = 1;
-    let total = 0;
-    for (let i = 0; i < this.blobLayers; i++) {
-      sum += noise(nx*freq, ny*freq, time*freq) * amp;
-      total += amp;
-      amp *= this.blobLayerAmp;
-      freq *= 2;
-    }
-    return sum / total;
-  }
-
   draw() {
     // Draw outer background circle
     noFill();
@@ -131,28 +124,41 @@ class CircleTimer {
     let progress = this.getProgress();
     let globalAlpha = 1.0;
     
-    // If timer is complete, shrink the filled circle over 10 seconds
+    // If timer is complete, trigger the Beyond effect
     if (this.isComplete) {
-      const shrinkElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      const shrinkDuration = 10000;
-      const shrinkT = constrain(shrinkElapsed / shrinkDuration, 0, 1);
+      // Keep the timer filled (static)
+      progress = 1.0;
+      globalAlpha = 1.0;
       
-      // Calculate display progress for shrink (1.0 -> 0.0)
-      progress = 1.0 - shrinkT;
+      const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
+      const beyondDuration = 100000; // 100 seconds
+      const beyondProgress = constrain(beyondElapsed / beyondDuration, 0, 1);
       
-      // Fade out effect
-      globalAlpha = 1.0 - shrinkT;
-
-      if (shrinkT >= 1.0) {
-        this.g.clear();
-        return; // fully shrunk
-      }
+      // Render the Beyond effect (expanding rainbow ring)
+      this.renderBeyond(beyondProgress);
+    } else {
+        // Clear beyond buffer when not complete (optional, to keep it clean)
+        this.beyondG.clear();
     }
 
     // Render metaball-style blob into offscreen buffer, then draw it centered
     this.renderMetaballs(progress, globalAlpha);
     imageMode(CENTER);
     image(this.g, this.x, this.y);
+
+    if (this.isComplete) {
+        // Draw the Beyond effect on top of everything, filling the screen
+        imageMode(CORNER);
+        image(this.beyondG, 0, 0, width, height);
+
+        // Draw "Beyond [X] seconds" text
+        const beyondSeconds = Math.floor((millis() - this.completionTime) / 1000);
+        fill(255);
+        noStroke();
+        textAlign(CENTER, CENTER);
+        textSize(24);
+        text(`Beyond ${beyondSeconds} seconds`, width / 2, height / 2);
+    }
   }
 
   renderMetaballs(progress, globalAlpha = 1.0) {
@@ -171,7 +177,7 @@ class CircleTimer {
 
     for (let mb of this.metaballs) {
       
-      // Add centripetal force if shrinking
+      // Add centripetal force if shrinking (kept logic but globalAlpha is 1.0 when complete now)
       if (globalAlpha < 1.0) {
         let dir = p5.Vector.sub(center, mb.pos);
         dir.normalize();
@@ -197,7 +203,6 @@ class CircleTimer {
     for (let layer = 0; layer < this.neonLayers; layer++) {
       // Create color variation for this layer using time and layer index
       // This creates smooth, consistent variations without flickering
-      // Similar to reference code's random(-25,25) but time-based
       const colorVar = sin(time * 0.5 + layer * 0.7) * 25 + cos(time * 0.3 + layer) * 15;
       
       // Apply globalAlpha to the layer alpha
@@ -228,6 +233,25 @@ class CircleTimer {
       g.noStroke();
       g.rect(0, 0, w, h);
     }
+  }
+
+  renderBeyond(progress) {
+      const g = this.beyondG;
+      g.clear();
+
+      // Calculate growing radius for the ring
+      // Start from 0 or small radius and grow to cover the screen
+      // Screen diagonal is roughly sqrt(w^2 + h^2)
+      // Let's say max radius is larger than screen diagonal to ensure full coverage
+      const maxDist = dist(0, 0, width, height) * 1.2;
+      const currentR = progress * maxDist;
+
+      this.beyondShader.setUniform("uResolution", [width, height]);
+      this.beyondShader.setUniform("uRadius", currentR);
+      this.beyondShader.setUniform("uCenter", [width / 2, height / 2]);
+
+      g.rectMode(CENTER);
+      g.rect(0, 0, width, height);
   }
 
   metaballVert() {
@@ -315,5 +339,97 @@ class CircleTimer {
         }
       }
     `;
+  }
+
+  beyondVert() {
+      return `
+        attribute vec3 aPosition;
+        attribute vec2 aTexCoord;
+
+        varying vec2 vTexCoord;
+
+        void main() {
+            vTexCoord = aTexCoord;
+
+            vec4 positionVec4 = vec4(aPosition, 1.0);
+            positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+
+            gl_Position = positionVec4;
+        }
+      `;
+  }
+
+  beyondFrag() {
+      return `
+        precision highp float;
+
+        varying vec2 vTexCoord;
+
+        uniform vec2 uResolution;
+        uniform float uRadius;
+        uniform vec2 uCenter;
+
+        vec3 hsv2rgb(vec3 c) {
+            vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+            vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+            return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
+        void main() {
+            float x = vTexCoord.x * uResolution.x;
+            float y = vTexCoord.y * uResolution.y; // p5 WEBGL usually flips Y, but let's check
+            // For standard p5 WEBGL texture coords: (0,0) is bottom-left or top-left depending on setup.
+            // But we use aTexCoord which goes 0 to 1.
+            // Let's assume standard orientation for now.
+            // Note: p5 sometimes flips Y when drawing to graphics.
+            // If uResolution.y is height, (0,0) is top-left in p5 2D, but in shader texture it might be bottom-left.
+            // Since it's a concentric ring, orientation doesn't matter much for X/Y.
+
+            float v = 0.0;
+
+            // Single growing source at uCenter
+            float dx = uCenter.x - x;
+            float dy = uCenter.y - (uResolution.y - y); // Fix Y if needed, let's try standard first.
+            // Actually, if we use aTexCoord, y=0 is bottom usually in GL, top in P5.
+            // But let's stick to simple distance.
+            // If we use vTexCoord directly:
+            // x = vTexCoord.x * WIDTH
+            // y = (1.0 - vTexCoord.y) * HEIGHT (p5 WEBGL weirdness sometimes) or just vTexCoord.y
+
+            // Let's just use distance from center.
+            // uCenter is passed as [width/2, height/2].
+            // x, y are pixel coords.
+            // We need to match the coordinate system.
+            // Let's rely on dx*dx + dy*dy being distance squared.
+
+            // Re-calculating y to match potential p5 flip
+            float py = (1.0 - vTexCoord.y) * uResolution.y;
+
+            float distSq = (uCenter.x - x) * (uCenter.x - x) + (uCenter.y - py) * (uCenter.y - py);
+
+            // Metaball function: v = R^2 / D^2
+            // We want the ring to be at distance 'uRadius' from center.
+            // At distance D=uRadius, v should be 1.0.
+            // So v = uRadius^2 / distSq.
+
+            if (distSq > 0.0) {
+                v = (uRadius * uRadius) / distSq;
+            } else {
+                v = 1000.0; // Very high at center
+            }
+
+            // Rainbow ring logic from reference:
+            // if (0.9 < v && v < 1.1)
+
+            if (v > 0.9 && v < 1.1) {
+                float a = (v - 0.9) * 4.0; // Map 0.9-1.1 to 0.0-0.8 (approx) -> used as hue?
+                // Reference used: hsv2rgb(vec3(a, 1., 1.))
+                // 'a' varies from 0.0 to 0.8 over the band.
+                gl_FragColor = vec4(hsv2rgb(vec3(a, 1.0, 1.0)), 1.0);
+            } else {
+                gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0); // Transparent elsewhere
+            }
+        }
+      `;
   }
 }

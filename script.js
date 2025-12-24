@@ -172,6 +172,7 @@ function gotList(thelist) {
 
 // Called when new data arrives from the serial port
 function gotData() {
+  if (!serial) return;
   const currentString = serial.readLine(); // Read the entire incoming line
   trim(currentString); // Remove leading/trailing whitespace
 
