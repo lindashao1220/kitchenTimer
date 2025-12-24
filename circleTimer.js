@@ -13,15 +13,19 @@ class CircleTimer {
     // Track if we have resized for the "Beyond" phase
     this.resizedForBeyond = false;
 
-    // Color & style
-    this.bgColor = [200, 200, 200];
-    // Set fill color with 50% transparency (alpha = 128)
-    if (color && color.length >= 3) {
-      this.fillColor = [color[0], color[1], color[2]];
-    } else {
-      this.fillColor = [90, 100, 22, 128];
-    }
-    this.strokeColor = [255];
+    // Color Palette: Electric Blue, Violet, Cyan
+    // Electric Blue: [0, 125, 255]
+    // Violet: [180, 50, 255]
+    // Cyan: [0, 255, 255]
+    this.palette = [
+        [0, 125, 255],   // Electric Blue
+        [180, 50, 255],  // Violet
+        [0, 255, 255]    // Cyan
+    ];
+
+    // Setup basic fill/stroke (mostly for the outer ring)
+    // We'll use Electric Blue for the ring
+    this.strokeColor = [0, 125, 255];
     
     // Metaball shader setup (offscreen WEBGL buffer so UI stays 2D)
     this.metaballCount = 12;
@@ -31,10 +35,7 @@ class CircleTimer {
     this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
     this.g.shader(this.metaballShader);
     this.metaballs = [];
-    // Store color variations for each metaball for watercolor effect
     this.metaballColors = [];
-    // Generate a base hue offset for this timer instance
-    const baseHueOffset = random(0, 360);
     
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
@@ -45,32 +46,16 @@ class CircleTimer {
         baseRadius: this.radius * baseSize
       });
       
-      let h = (baseHueOffset + map(i, 0, this.metaballCount, 0, 360) + random(-30, 30)) % 360;
-      let s = random(0.4, 0.6);
-      let b = random(0.9, 1.0);
-      
-      let c = b * s;
-      let x = c * (1 - Math.abs((h / 60) % 2 - 1));
-      let m = b - c;
-      
-      let r, g, bl;
-      if (h < 60) { r = c; g = x; bl = 0; }
-      else if (h < 120) { r = x; g = c; bl = 0; }
-      else if (h < 180) { r = 0; g = c; bl = x; }
-      else if (h < 240) { r = 0; g = x; bl = c; }
-      else if (h < 300) { r = x; g = 0; bl = c; }
-      else { r = c; g = 0; bl = x; }
-      
-      this.metaballColors.push([
-        (r + m) * 255,
-        (g + m) * 255,
-        (bl + m) * 255
-      ]);
+      // Assign color from palette cyclically or randomly
+      // Cycling ensures even distribution
+      let col = this.palette[i % this.palette.length];
+      this.metaballColors.push(col);
     }
-    // Number of overlapping layers for neon glow effect
-    this.neonLayers = 5;
-    // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
-    this.blobAlpha = 0.9;
+
+    // Number of overlapping layers - reduced slightly to avoid over-saturation
+    this.neonLayers = 3;
+    // Blob alpha transparency
+    this.blobAlpha = 0.8;
   }
 
   start() {
@@ -203,10 +188,8 @@ class CircleTimer {
     const data = [];
     const w = g.width;
     const h = g.height;
-    const center = createVector(w / 2, h / 2);
 
     for (let mb of this.metaballs) {
-      
       mb.pos.add(mb.vel);
       // Boundary check needs to respect the buffer size
       if (mb.pos.x < mb.baseRadius || mb.pos.x > w - mb.baseRadius) mb.vel.x *= -1;
@@ -216,41 +199,36 @@ class CircleTimer {
       data.push(mb.pos.x, mb.pos.y, r);
     }
 
-    // Clear and render multiple overlapping layers for neon glow effect
+    // Clear and render multiple overlapping layers
     g.clear();
+    // Blend mode BLEND works well for gradients on white if we use alpha correctly
     g.blendMode(BLEND);
     
-    const time = millis() * 0.001;
-    for (let layer = 0; layer < this.neonLayers; layer++) {
-      const colorVar = sin(time * 0.5 + layer * 0.7) * 25 + cos(time * 0.3 + layer) * 15;
-      const currentAlpha = this.blobAlpha * globalAlpha;
-      
-      const layerColor = [
-        constrain(this.fillColor[0] + colorVar, 0, 255) / 255,
-        constrain(this.fillColor[1] + colorVar * 0.8, 0, 255) / 255,
-        constrain(this.fillColor[2] + colorVar * 1.2, 0, 255) / 255,
-        currentAlpha
-      ];
+    // Just render one pass with the shader, the shader handles the "soft diffuse" look via gradient mixing
+    // But to get the "diffuse lighting" look, maybe 2 layers with slightly different thresholds?
+    // Let's stick to the single loop but optimize parameters
 
-      g.shader(this.metaballShader);
-      const flatColors = [];
-      for(let c of this.metaballColors) {
-        flatColors.push(c[0]/255, c[1]/255, c[2]/255);
-      }
-
-      this.metaballShader.setUniform("uResolution", [w, h]);
-      this.metaballShader.setUniform("metaballs", data);
-      this.metaballShader.setUniform("metaballColors", flatColors);
-      this.metaballShader.setUniform("uColor", layerColor);
-      this.metaballShader.setUniform("uThreshold", 1.0);
-      this.metaballShader.setUniform("uCenter", [w * 0.5, h * 0.5]);
-      this.metaballShader.setUniform("uRadius", currentRadius);
-      this.metaballShader.setUniform("uFuzziness", fuzziness);
-
-      g.rectMode(CENTER);
-      g.noStroke();
-      g.rect(0, 0, w, h);
+    const flatColors = [];
+    for(let c of this.metaballColors) {
+      flatColors.push(c[0]/255, c[1]/255, c[2]/255);
     }
+
+    // Pass the palette colors to the shader
+    this.metaballShader.setUniform("uResolution", [w, h]);
+    this.metaballShader.setUniform("metaballs", data);
+    this.metaballShader.setUniform("metaballColors", flatColors);
+    this.metaballShader.setUniform("uThreshold", 1.0);
+    this.metaballShader.setUniform("uCenter", [w * 0.5, h * 0.5]);
+    this.metaballShader.setUniform("uRadius", currentRadius);
+    this.metaballShader.setUniform("uFuzziness", fuzziness);
+
+    // We can use uAlphaScalar to control global opacity
+    this.metaballShader.setUniform("uAlphaScalar", this.blobAlpha * globalAlpha);
+
+    g.shader(this.metaballShader);
+    g.rectMode(CENTER);
+    g.noStroke();
+    g.rect(0, 0, w, h);
   }
 
   metaballVert() {
@@ -274,11 +252,11 @@ class CircleTimer {
       uniform vec3 metaballs[${this.metaballCount}];
       uniform vec3 metaballColors[${this.metaballCount}];
       uniform vec2 uResolution;
-      uniform vec4 uColor;
       uniform float uThreshold;
       uniform vec2 uCenter;
       uniform float uRadius;
       uniform float uFuzziness;
+      uniform float uAlphaScalar;
 
       float random (vec2 st) {
           return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
@@ -289,7 +267,6 @@ class CircleTimer {
         float y = vTexCoord.y * uResolution.y;
 
         // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
         if (uFuzziness <= 0.0) {
           if (distance(vec2(x, y), uCenter) > uRadius) {
             discard;
@@ -308,7 +285,9 @@ class CircleTimer {
           float dx = ball.x - x;
           float dy = ball.y - y;
           float r = ball.z;
-          float influence = r * r / (dx * dx + dy * dy + 1e-5);
+          // Soft diffuse influence function
+          // Increase divisor slightly to soften
+          float influence = r * r / (dx * dx + dy * dy + 200.0);
           v += influence;
           
           accumColor += metaballColors[i] * influence;
@@ -317,34 +296,32 @@ class CircleTimer {
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
-        float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+        // Threshold for edge
+        float threshold = uThreshold * 0.8;
 
         if (uFuzziness > 0.0) {
             // Fuzzy mode
-            // Map v to alpha smoothly
-            // As uFuzziness increases, we want to see lower v values (softer edges)
-            // When uFuzziness is 1.0, we might want visible alpha down to v ~ 0.1
-
             float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.2);
+            float upperBound = threshold + (uFuzziness * 0.5);
 
             float alpha = smoothstep(lowerBound, upperBound, v);
+            vec3 finalColor = blendedColor;
 
-            // Texture
-            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-
-            gl_FragColor = vec4(finalColor, alpha * uColor.a);
+            gl_FragColor = vec4(finalColor, alpha * uAlphaScalar);
 
         } else {
             // Normal mode
-            if (v >= threshold) {
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
+            // Soft edges: widen the smoothstep range
+            float alphaStrength = smoothstep(threshold - 0.2, threshold + 0.3, v);
 
-              float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
-              float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
-              vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-              gl_FragColor = vec4(finalColor, finalAlpha);
+            if (alphaStrength > 0.01) {
+              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
+
+              // Edge glow (white rim or lighter)
+              // float edgeGlow = smoothstep(0.8, 1.0, distFromCenter);
+              // blendedColor = mix(blendedColor, vec3(1.0), edgeGlow * 0.5);
+
+              gl_FragColor = vec4(blendedColor, alphaStrength * uAlphaScalar);
             } else {
               gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
             }

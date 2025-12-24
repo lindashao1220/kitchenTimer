@@ -23,7 +23,7 @@ let lastSensor2 = null; // for simple debounce on start trigger
 function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
-  background(30);
+  background(255); // White background
 
   // Initialize serial connection
   try {
@@ -47,7 +47,7 @@ function setup() {
 function startNewTimer() {
   // durationInput is now a number in seconds
   let duration = durationInput || 5;
-  const color = [255, 255, 255];
+  const color = [0, 0, 0]; // Default color passed, but CircleTimer handles palette now
   
   // Calculate radius based on duration (Reference: Full screen radius = 60 seconds)
   // Use currentDisplayRadius for seamless transition if needed, 
@@ -61,7 +61,7 @@ function startNewTimer() {
 }
 
 function draw() {
-  background(30);
+  background(255); // White background
   
   if (mode === 'LANDING') {
     drawLanding();
@@ -80,10 +80,10 @@ function draw() {
          let timeStr = nf(m, 2) + ':' + nf(s, 2);
 
          // Ensure text is visible over bright blobs
-         stroke(0);
+         stroke(255); // White stroke for contrast against blobs
          strokeWeight(4);
          strokeJoin(ROUND);
-         fill(255);
+         fill(0); // Black text
          textSize(48);
          textAlign(CENTER, CENTER);
          text("Beyond " + timeStr, width/2, height/2);
@@ -92,7 +92,8 @@ function draw() {
   }
 
   // Show incoming sensor values
-  fill(100);
+  fill(150);
+  noStroke();
   textSize(12);
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
@@ -100,7 +101,8 @@ function draw() {
 }
 
 function drawLanding() {
-  fill(255);
+  fill(0); // Black text
+  noStroke();
   textSize(32);
   text("Press 's' to enter Full Screen", width / 2, height / 2);
 }
@@ -129,18 +131,18 @@ function drawSetup() {
   
   // Draw preview circle using smoothed radius
   noFill();
-  stroke(255);
+  stroke(0); // Black stroke
   strokeWeight(2);
   circle(width / 2, height / 2, currentDisplayRadius * 2);
   
   // Draw duration text
-  fill(255);
+  fill(0); // Black text
   noStroke();
   textSize(32);
   text(durationInput + "s", width / 2, height / 2);
   
   textSize(24);
-  fill(150);
+  fill(100); // Darker gray
   text("Setup Mode", width / 2, height / 2 - maxRadius - 40);
   text("Beyond: " + beyondInput + " min", width / 2, height / 2 + 50);
 
