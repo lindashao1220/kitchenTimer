@@ -1,7 +1,8 @@
 class CircleTimer {
-  constructor(duration, beyondDurationMinutes, x, y, radius, color) {
+  constructor(duration, beyondDurationSeconds, x, y, radius, color) {
     this.duration = duration * 1000;
-    this.beyondDuration = (beyondDurationMinutes || 1) * 60 * 1000;
+    // Interpret input as seconds. Default to 60s if not provided.
+    this.beyondDuration = (beyondDurationSeconds || 60) * 1000;
     this.x = x;
     this.y = y;
     this.radius = radius;
@@ -149,7 +150,7 @@ class CircleTimer {
       // Fuzziness increases
       fuzziness = t;
       
-      // Radius grows linearly or smoothly
+      // Radius grows smoothly
       let maxR = max(width, height);
       renderRadius = lerp(this.radius, maxR, t);
     }
@@ -171,9 +172,9 @@ class CircleTimer {
 
   renderMetaballs(progress, globalAlpha = 1.0, fuzziness = 0.0, renderRadius = null) {
     const g = this.g;
-    // Only constrain if not in fuzzy/growth mode
+    // Only constrain if not in fuzzy/growth mode (progress is used for scaling)
     let p = progress;
-    if (fuzziness === 0) {
+    if (!this.isComplete) {
         p = constrain(progress, 0, 1);
     }
     
@@ -261,14 +262,13 @@ class CircleTimer {
       void main() {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
+        vec2 p = vec2(x, y);
 
-        // Hard clipping at outer radius, but allow growth
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
-          }
-        }
+        // Distance from center for clipping and rim light
+        float dist = distance(p, uCenter);
+        float normalizedDist = dist / max(uRadius, 1.0);
 
+        // Metaball field calculation
         float v = 0.0;
         vec3 accumColor = vec3(0.0);
         float totalWeight = 0.0;
@@ -292,41 +292,49 @@ class CircleTimer {
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
-        // Threshold for edge
+        // Base threshold
         float threshold = uThreshold * 0.8;
 
-        // Glass texture: Add subtle white noise modulation
-        // On white background, adding white makes it lighter ("frosted")
+        // Texture effect (glassy noise)
         vec3 texturedColor = mix(blendedColor, vec3(1.0), n * 0.2);
 
-        if (uFuzziness > 0.0) {
-            // Fuzzy mode
-            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.5); 
-            
-            float alpha = smoothstep(lowerBound, upperBound, v);
-            
-            gl_FragColor = vec4(texturedColor, alpha * uAlphaScalar);
-            
-        } else {
-            // Normal mode
-            // Soft edges: widen the smoothstep range
-            float alphaStrength = smoothstep(threshold - 0.2, threshold + 0.3, v);
-            
-            if (alphaStrength > 0.01) {
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              
-              // Edge glow / Rim Light (white rim)
-              // Only apply if near the edge of the clipping circle
-              float edgeGlow = smoothstep(0.85, 1.0, distFromCenter);
-              
-              // Mix in white for the rim
-              vec3 finalColor = mix(texturedColor, vec3(1.0), edgeGlow * 0.6);
+        // --- Smooth Transition Logic ---
+        // Interpolate parameters based on uFuzziness (0.0 = sharp, 1.0 = fuzzy)
 
-              gl_FragColor = vec4(finalColor, alphaStrength * uAlphaScalar);
-            } else {
-              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-            }
+        // 1. Edge Smoothness
+        // Sharp mode: [threshold - 0.2, threshold + 0.3]
+        // Fuzzy mode: [threshold * 0.05, threshold + 0.5] (Much wider spread)
+        float lowerBound = mix(threshold - 0.2, threshold * 0.05, uFuzziness);
+        float upperBound = mix(threshold + 0.3, threshold + 0.5, uFuzziness);
+
+        float alphaStrength = smoothstep(lowerBound, upperBound, v);
+
+        // 2. Circular Clipping
+        // Sharp mode: Clip outside uRadius
+        // Fuzzy mode: No clip (or clip very far out)
+        // Implementation: Soft clip that fades out as uFuzziness increases
+        float clipEdge = smoothstep(uRadius, uRadius + 2.0, dist);
+        // If uFuzziness is 1, clipFactor becomes 0, meaning we ignore the clip
+        float clipFactor = mix(1.0 - clipEdge, 1.0, uFuzziness);
+
+        // 3. Rim Light
+        // Sharp mode: visible at edge
+        // Fuzzy mode: invisible
+        float rimVisibility = mix(0.6, 0.0, uFuzziness);
+        float edgeGlow = smoothstep(0.85, 1.0, normalizedDist);
+
+        // Combine Alpha
+        // We multiply the metaball alpha by the clip factor
+        float finalAlpha = alphaStrength * clipFactor;
+
+        if (finalAlpha > 0.01) {
+            // Mix in rim light based on position and fuzziness
+            // We clamp edgeGlow so it doesn't affect center
+            vec3 finalColor = mix(texturedColor, vec3(1.0), edgeGlow * rimVisibility);
+            
+            gl_FragColor = vec4(finalColor, finalAlpha * uAlphaScalar);
+        } else {
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         }
       }
     `;
