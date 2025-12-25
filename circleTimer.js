@@ -171,17 +171,13 @@ class CircleTimer {
     let minY = 0;
     let maxY = h;
 
-    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
-    // This mimics the previous behavior where they bounced inside the small buffer
-    if (!this.isComplete && fuzziness === 0) {
-        // Use the current radius (or base radius) to define a bounding box around the center
-        // The previous code had a buffer of size radius*2, effectively constraining to radius.
-        const r = this.radius;
-        minX = this.x - r;
-        maxX = this.x + r;
-        minY = this.y - r;
-        maxY = this.y + r;
-    }
+    // Always constrain particles to the timer's original radius
+    // This keeps the simulation stable; we will "zoom" the rendering during the Beyond phase
+    const r = this.radius;
+    minX = this.x - r;
+    maxX = this.x + r;
+    minY = this.y - r;
+    maxY = this.y + r;
 
     for (let mb of this.metaballs) {
       
@@ -199,7 +195,17 @@ class CircleTimer {
       }
 
       const r = mb.baseRadius * p;
-      data.push(mb.pos.x, mb.pos.y, r);
+
+      // Calculate render position
+      // During "Beyond" phase (p > 1), we scale the position relative to center to simulate a zoom
+      // p is 'progress', which starts at 1.0 and grows
+      let dx = mb.pos.x - this.x;
+      let dy = mb.pos.y - this.y;
+
+      let renderX = this.x + dx * p;
+      let renderY = this.y + dy * p;
+
+      data.push(renderX, renderY, r);
     }
 
     // Clear and render multiple overlapping layers for neon glow effect
