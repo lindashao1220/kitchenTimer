@@ -1,3 +1,17 @@
+// Global configuration for metaballs
+const METABALL_CONFIG = {
+  // Array of RGB colors [r, g, b]
+  colors: [
+    [0, 128, 255],   // Electric Blue
+    [127, 0, 255],   // Violet
+    [0, 255, 255],   // Cyan
+    [0, 200, 255],   // Light Blue
+    [100, 50, 255]   // Indigo
+  ],
+  baseAlpha: 0.9,
+  neonLayers: 5
+};
+
 class CircleTimer {
   constructor(duration, beyondDurationMinutes, x, y, radius, color) {
     this.duration = duration * 1000;
@@ -31,8 +45,9 @@ class CircleTimer {
     this.metaballs = [];
     // Store color variations for each metaball for watercolor effect
     this.metaballColors = [];
-    // Generate a base hue offset for this timer instance
-    const baseHueOffset = random(0, 360);
+
+    // Use configured colors
+    const palette = METABALL_CONFIG.colors;
     
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
@@ -44,32 +59,20 @@ class CircleTimer {
         baseRadius: this.radius * baseSize
       });
       
-      let h = (baseHueOffset + map(i, 0, this.metaballCount, 0, 360) + random(-30, 30)) % 360;
-      let s = random(0.4, 0.6);
-      let b = random(0.9, 1.0);
+      // Select color from palette or interpolate
+      let colorIndex = i % palette.length;
+      let c = palette[colorIndex];
+      // Add slight variation
+      let varR = constrain(c[0] + random(-20, 20), 0, 255);
+      let varG = constrain(c[1] + random(-20, 20), 0, 255);
+      let varB = constrain(c[2] + random(-20, 20), 0, 255);
       
-      let c = b * s;
-      let x = c * (1 - Math.abs((h / 60) % 2 - 1));
-      let m = b - c;
-      
-      let r, g, bl;
-      if (h < 60) { r = c; g = x; bl = 0; }
-      else if (h < 120) { r = x; g = c; bl = 0; }
-      else if (h < 180) { r = 0; g = c; bl = x; }
-      else if (h < 240) { r = 0; g = x; bl = c; }
-      else if (h < 300) { r = x; g = 0; bl = c; }
-      else { r = c; g = 0; bl = x; }
-      
-      this.metaballColors.push([
-        (r + m) * 255,
-        (g + m) * 255,
-        (bl + m) * 255
-      ]);
+      this.metaballColors.push([varR, varG, varB]);
     }
     // Number of overlapping layers for neon glow effect
-    this.neonLayers = 5;
+    this.neonLayers = METABALL_CONFIG.neonLayers;
     // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
-    this.blobAlpha = 0.9;
+    this.blobAlpha = METABALL_CONFIG.baseAlpha;
   }
 
   start() {
@@ -156,6 +159,9 @@ class CircleTimer {
     const g = this.g;
     // Only constrain if not in fuzzy/growth mode
     let p = progress;
+
+    // In "Beyond" mode (fuzziness > 0), we want the particles to move freely but constrained by the growing radius
+    // We do NOT want to constrain p to 1 because p is used to scale the metaball radius (size)
     if (fuzziness === 0) {
         p = constrain(progress, 0, 1);
     }
@@ -173,31 +179,21 @@ class CircleTimer {
     const h = g.height;
     
     // Determine bounds for metaballs
-    let minX = 0;
-    let maxX = w;
-    let minY = 0;
-    let maxY = h;
-
-    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
-    // This mimics the previous behavior where they bounced inside the small buffer
-    if (!this.isComplete && fuzziness === 0) {
-        // Use the current radius (or base radius) to define a bounding box around the center
-        // The previous code had a buffer of size radius*2, effectively constraining to radius.
-        const r = this.radius;
-        minX = this.x - r;
-        maxX = this.x + r;
-        minY = this.y - r;
-        maxY = this.y + r;
-    }
+    // Use the currentRadius to define a bounding box around the center
+    const r = currentRadius;
+    const minX = this.x - r;
+    const maxX = this.x + r;
+    const minY = this.y - r;
+    const maxY = this.y + r;
 
     for (let mb of this.metaballs) {
       
       mb.pos.add(mb.vel);
       
       // Bounce off the calculated bounds
+      // Constrain particles to the current growing radius
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
           mb.vel.x *= -1;
-          // Constrain to ensure they don't get stuck outside if bounds shrink (though bounds only grow here)
           mb.pos.x = constrain(mb.pos.x, minX + mb.baseRadius, maxX - mb.baseRadius);
       }
       if (mb.pos.y < minY + mb.baseRadius || mb.pos.y > maxY - mb.baseRadius) {
@@ -205,8 +201,9 @@ class CircleTimer {
           mb.pos.y = constrain(mb.pos.y, minY + mb.baseRadius, maxY - mb.baseRadius);
       }
 
-      const r = mb.baseRadius * p;
-      data.push(mb.pos.x, mb.pos.y, r);
+      // The radius of the metaball
+      const metaballRadius = mb.baseRadius * p;
+      data.push(mb.pos.x, mb.pos.y, metaballRadius);
     }
 
     // Clear and render multiple overlapping layers for neon glow effect
@@ -282,12 +279,9 @@ class CircleTimer {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
+        // Clip outside radius. Since uRadius expands in JS, this container grows naturally.
+        if (distance(vec2(x, y), uCenter) > uRadius) {
             discard;
-          }
         }
 
         float v = 0.0;
@@ -313,35 +307,39 @@ class CircleTimer {
         
         float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
 
-        if (uFuzziness > 0.0) {
-            // Fuzzy mode
-            // Map v to alpha smoothly
-            // As uFuzziness increases, we want to see lower v values (softer edges)
-            // When uFuzziness is 1.0, we might want visible alpha down to v ~ 0.1
-            
-            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.2); 
-            
-            float alpha = smoothstep(lowerBound, upperBound, v);
-            
-            // Texture
-            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-            
-            gl_FragColor = vec4(finalColor, alpha * uColor.a);
-            
+        // Smoothly interpolate parameters based on uFuzziness
+
+        // Lower bound: where alpha starts to become > 0
+        // Normal mode (Fuzz=0): threshold
+        // Fuzzy mode (Fuzz=1): threshold * 0.05 (much wider spread)
+        float lowerBound = mix(threshold, threshold * 0.05, uFuzziness);
+
+        // Upper bound: where alpha becomes 1.0
+        // Normal mode (Fuzz=0): threshold + epsilon (sharp edge)
+        // Fuzzy mode (Fuzz=1): threshold + 0.2 (soft edge)
+        float upperBound = mix(threshold + 0.5, threshold + 0.2, uFuzziness);
+
+        // For sharp edge in normal mode, we need step-like behavior, but smoothstep handles it if range is small
+        // In normal mode: smoothstep(threshold, threshold + 0.5, v)
+
+        float alpha = smoothstep(lowerBound, upperBound, v);
+
+        // Edge glow calculation (only for normal mode really, but let's see)
+        float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
+        float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
+
+        // Reduce edge glow influence as we get fuzzy
+        float glowInfluence = mix(0.6 + 0.4 * edgeGlow, 1.0, uFuzziness);
+
+        float finalAlpha = uColor.a * alpha * glowInfluence;
+
+        if (finalAlpha < 0.01) {
+            // Discard purely transparent pixels to save fill rate?
+            // Or just output 0
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
         } else {
-            // Normal mode
-            if (v >= threshold) {
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
-              
-              float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
-              float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
-              vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-              gl_FragColor = vec4(finalColor, finalAlpha);
-            } else {
-              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-            }
+            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+            gl_FragColor = vec4(finalColor, finalAlpha);
         }
       }
     `;
