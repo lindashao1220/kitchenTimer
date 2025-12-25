@@ -1,11 +1,15 @@
+/* Remove default spacing around the page */
 html, body {
   margin: 0;
   padding: 0;
 }
+
+/* Ensure the canvas displays as a block element to avoid scrollbars */
 canvas {
   display: block;
 }
 
+/* Set default font styles for inputs and buttons if we use them */
 input, button {
   font-family: Arial, sans-serif;
   font-size: 14px;
