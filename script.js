@@ -6,6 +6,7 @@ let mode = 'LANDING'; // 'LANDING', 'SETUP', or 'ACTIVE'
 
 // Timer settings
 let durationInput = 5; // The actual value in seconds
+let beyondInput = 1; // Beyond duration in minutes
 let lastSensorValue1 = -1; // To track sensor changes
 
 // Smooth transition for setup circle
@@ -22,7 +23,7 @@ let lastSensor2 = null; // for simple debounce on start trigger
 function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
-  background(30);
+  background(255); // White background
 
   // Initialize serial connection
   try {
@@ -46,7 +47,7 @@ function setup() {
 function startNewTimer() {
   // durationInput is now a number in seconds
   let duration = durationInput || 5;
-  const color = [255, 255, 255];
+  const color = [0, 0, 0]; // Default color passed, but CircleTimer handles palette now
   
   // Calculate radius based on duration (Reference: Full screen radius = 60 seconds)
   // Use currentDisplayRadius for seamless transition if needed, 
@@ -54,13 +55,13 @@ function startNewTimer() {
   let maxRadius = min(width, height) / 2;
   let r = map(duration, 0, 60, 0, maxRadius);
   
-  timer = new CircleTimer(duration, width / 2, height / 2, r, color);
+  timer = new CircleTimer(duration, beyondInput, width / 2, height / 2, r, color);
   timer.start();
   mode = 'ACTIVE';
 }
 
 function draw() {
-  background(30);
+  background(255); // White background
   
   if (mode === 'LANDING') {
     drawLanding();
@@ -70,11 +71,29 @@ function draw() {
     if (timer) {
       timer.update();
       timer.draw();
+      
+      if (timer.isComplete && timer.completionTime) {
+         let elapsed = millis() - timer.completionTime;
+         let seconds = Math.floor(elapsed / 1000);
+         let m = Math.floor(seconds / 60);
+         let s = seconds % 60;
+         let timeStr = nf(m, 2) + ':' + nf(s, 2);
+         
+         // Ensure text is visible over bright blobs
+         stroke(255); // White stroke for contrast against blobs
+         strokeWeight(4);
+         strokeJoin(ROUND);
+         fill(0); // Black text
+         textSize(48);
+         textAlign(CENTER, CENTER);
+         text("Beyond " + timeStr, width/2, height/2);
+      }
     }
   }
 
   // Show incoming sensor values
-  fill(100);
+  fill(150);
+  noStroke();
   textSize(12);
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
@@ -82,7 +101,8 @@ function draw() {
 }
 
 function drawLanding() {
-  fill(255);
+  fill(0); // Black text
+  noStroke();
   textSize(32);
   text("Press 's' to enter Full Screen", width / 2, height / 2);
 }
@@ -111,21 +131,23 @@ function drawSetup() {
   
   // Draw preview circle using smoothed radius
   noFill();
-  stroke(255);
+  stroke(0); // Black stroke
   strokeWeight(2);
   circle(width / 2, height / 2, currentDisplayRadius * 2);
   
   // Draw duration text
-  fill(255);
+  fill(0); // Black text
   noStroke();
   textSize(32);
   text(durationInput + "s", width / 2, height / 2);
   
   textSize(24);
-  fill(150);
+  fill(100); // Darker gray
   text("Setup Mode", width / 2, height / 2 - maxRadius - 40);
+  text("Beyond: " + beyondInput + " min", width / 2, height / 2 + 50);
+
   textSize(16);
-  text("Keys: 1 (+), 2 (-), SPACE (Start)", width / 2, height / 2 + maxRadius + 40);
+  text("Keys: 1/2 (Duration), 3/4 (Beyond), SPACE (Start)", width / 2, height / 2 + maxRadius + 80);
 }
 
 
@@ -147,6 +169,14 @@ function keyPressed() {
       // Decrease duration
       if (durationInput > 1) {
         durationInput--;
+      }
+    } else if (key === '3') {
+      // Increase beyond duration
+      beyondInput++;
+    } else if (key === '4') {
+      // Decrease beyond duration
+      if (beyondInput > 1) {
+        beyondInput--;
       }
     } else if (key === ' ') {
       startNewTimer();

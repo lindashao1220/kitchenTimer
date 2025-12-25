@@ -1,23 +1,31 @@
 class CircleTimer {
-  constructor(duration, x, y, radius, color) {
+  constructor(duration, beyondDurationMinutes, x, y, radius, color) {
     this.duration = duration * 1000;
+    this.beyondDuration = (beyondDurationMinutes || 1) * 60 * 1000;
     this.x = x;
     this.y = y;
     this.radius = radius;
     this.startTime = null;
     this.isRunning = false;
     this.isComplete = false;
-    this.completionTime = null; // track when the timer finished for shrink-out
+    this.completionTime = null; 
+    
+    // Track if we have resized for the "Beyond" phase
+    this.resizedForBeyond = false;
 
-    // Color & style
-    this.bgColor = [200, 200, 200];
-    // Set fill color with 50% transparency (alpha = 128)
-    if (color && color.length >= 3) {
-      this.fillColor = [color[0], color[1], color[2]];
-    } else {
-      this.fillColor = [90, 100, 22, 128];
-    }
-    this.strokeColor = [255];
+    // Color Palette: Electric Blue, Violet, Cyan
+    // Electric Blue: [0, 125, 255]
+    // Violet: [180, 50, 255]
+    // Cyan: [0, 255, 255]
+    this.palette = [
+        [0, 125, 255],   // Electric Blue
+        [180, 50, 255],  // Violet
+        [0, 255, 255]    // Cyan
+    ];
+
+    // Setup basic fill/stroke (mostly for the outer ring)
+    // We'll use Electric Blue for the ring
+    this.strokeColor = [0, 125, 255]; 
     
     // Metaball shader setup (offscreen WEBGL buffer so UI stays 2D)
     this.metaballCount = 12;
@@ -27,10 +35,7 @@ class CircleTimer {
     this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
     this.g.shader(this.metaballShader);
     this.metaballs = [];
-    // Store color variations for each metaball for watercolor effect
     this.metaballColors = [];
-    // Generate a base hue offset for this timer instance
-    const baseHueOffset = random(0, 360);
     
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
@@ -41,39 +46,16 @@ class CircleTimer {
         baseRadius: this.radius * baseSize
       });
       
-      // Generate soft multicolor pastel palette
-      // Using HSB-like logic but converting to RGB manually
-      // Hue: distributed around the circle or random
-      // Saturation: Low-Medium (to be pastel) ~ 0.4-0.6
-      // Brightness: High ~ 0.8-1.0
-      
-      let h = (baseHueOffset + map(i, 0, this.metaballCount, 0, 360) + random(-30, 30)) % 360;
-      let s = random(0.4, 0.6);
-      let b = random(0.9, 1.0);
-      
-      // HSB to RGB conversion
-      let c = b * s;
-      let x = c * (1 - Math.abs((h / 60) % 2 - 1));
-      let m = b - c;
-      
-      let r, g, bl;
-      if (h < 60) { r = c; g = x; bl = 0; }
-      else if (h < 120) { r = x; g = c; bl = 0; }
-      else if (h < 180) { r = 0; g = c; bl = x; }
-      else if (h < 240) { r = 0; g = x; bl = c; }
-      else if (h < 300) { r = x; g = 0; bl = c; }
-      else { r = c; g = 0; bl = x; }
-      
-      this.metaballColors.push([
-        (r + m) * 255,
-        (g + m) * 255,
-        (bl + m) * 255
-      ]);
+      // Assign color from palette cyclically or randomly
+      // Cycling ensures even distribution
+      let col = this.palette[i % this.palette.length];
+      this.metaballColors.push(col);
     }
-    // Number of overlapping layers for neon glow effect
-    this.neonLayers = 5;
-    // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
-    this.blobAlpha = 0.9;
+    
+    // Number of overlapping layers - reduced slightly to avoid over-saturation
+    this.neonLayers = 3;
+    // Blob alpha transparency
+    this.blobAlpha = 0.8; 
   }
 
   start() {
@@ -106,81 +88,110 @@ class CircleTimer {
     return constrain(elapsed / this.duration, 0, 1);
   }
 
-  // 多阶 noise 合成
-  layeredNoise(nx, ny, time) {
-    let sum = 0;
-    let amp = 1;
-    let freq = 1;
-    let total = 0;
-    for (let i = 0; i < this.blobLayers; i++) {
-      sum += noise(nx*freq, ny*freq, time*freq) * amp;
-      total += amp;
-      amp *= this.blobLayerAmp;
-      freq *= 2;
-    }
-    return sum / total;
-  }
-
   draw() {
     // Draw outer background circle
-    noFill();
-    stroke(this.strokeColor);
-    strokeWeight(2);
-    circle(this.x, this.y, this.radius * 2);
+    if (!this.isComplete) {
+      noFill();
+      stroke(this.strokeColor);
+      strokeWeight(2);
+      circle(this.x, this.y, this.radius * 2);
+    }
 
     let progress = this.getProgress();
     let globalAlpha = 1.0;
+    let fuzziness = 0.0;
+    let renderRadius = this.radius;
     
-    // If timer is complete, shrink the filled circle over 10 seconds
+    // "Beyond" logic: Grow and become fuzzy instead of shrinking
     if (this.isComplete) {
-      const shrinkElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      const shrinkDuration = 10000;
-      const shrinkT = constrain(shrinkElapsed / shrinkDuration, 0, 1);
-      
-      // Calculate display progress for shrink (1.0 -> 0.0)
-      progress = 1.0 - shrinkT;
-      
-      // Fade out effect
-      globalAlpha = 1.0 - shrinkT;
-
-      if (shrinkT >= 1.0) {
-        this.g.clear();
-        return; // fully shrunk
+      // Handle resizing of buffer once
+      if (!this.resizedForBeyond) {
+        let oldW = this.g.width;
+        let oldH = this.g.height;
+        
+        // Remove old buffer if possible (optional but good for memory)
+        if (this.g.remove) {
+             this.g.remove();
+        }
+        
+        // Create new full-screen buffer
+        // Note: 'width' and 'height' are p5 global variables for canvas size
+        this.g = createGraphics(width, height, WEBGL);
+        this.g.noStroke();
+        this.g.pixelDensity(1);
+        
+        // Re-create and assign shader for the new context
+        this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
+        this.g.shader(this.metaballShader);
+        
+        this.resizedForBeyond = true;
+        
+        // Shift metaballs to new center
+        let newW = this.g.width;
+        let newH = this.g.height;
+        let shiftX = (newW - oldW) / 2;
+        let shiftY = (newH - oldH) / 2;
+        
+        for (let mb of this.metaballs) {
+          mb.pos.add(shiftX, shiftY);
+        }
       }
+
+      const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
+      // "Slowly growing"
+      // Use the configured beyondDuration for the growth speed
+      const growDuration = this.beyondDuration;
+      const t = constrain(beyondElapsed / growDuration, 0, 1);
+      
+      // Progress stays 1.0 (full size metaballs)
+      progress = 1.0;
+      
+      // Fuzziness increases
+      fuzziness = t;
+      
+      // Radius grows linearly or smoothly
+      let maxR = max(width, height);
+      renderRadius = lerp(this.radius, maxR, t);
     }
 
     // Render metaball-style blob into offscreen buffer, then draw it centered
-    this.renderMetaballs(progress, globalAlpha);
+    if (this.isComplete) {
+        // Calculate growth scale for metaballs
+        // We want them to grow to fill the screen visually
+        let maxR = max(width, height); 
+        let growthRatio = maxR / (this.radius > 1 ? this.radius : 1);
+        // Animate scale from 1.0 to growthRatio over the duration (captured by fuzziness t)
+        progress = lerp(1.0, growthRatio, fuzziness);
+    }
+
+    this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
     imageMode(CENTER);
     image(this.g, this.x, this.y);
   }
 
-  renderMetaballs(progress, globalAlpha = 1.0) {
+  renderMetaballs(progress, globalAlpha = 1.0, fuzziness = 0.0, renderRadius = null) {
     const g = this.g;
-    const p = constrain(progress, 0, 1);
-    if (p <= 0) {
+    // Only constrain if not in fuzzy/growth mode
+    let p = progress;
+    if (fuzziness === 0) {
+        p = constrain(progress, 0, 1);
+    }
+    
+    if (p <= 0 && fuzziness === 0) {
       g.clear();
       return;
     }
+
+    const currentRadius = renderRadius !== null ? renderRadius : this.radius;
 
     // Update metaball positions and pack uniforms
     const data = [];
     const w = g.width;
     const h = g.height;
-    const center = createVector(w / 2, h / 2);
-
+    
     for (let mb of this.metaballs) {
-      
-      // Add centripetal force if shrinking
-      if (globalAlpha < 1.0) {
-        let dir = p5.Vector.sub(center, mb.pos);
-        dir.normalize();
-        dir.mult(0.5); // Attraction strength
-        mb.vel.add(dir);
-        mb.vel.limit(3); 
-      }
-
       mb.pos.add(mb.vel);
+      // Boundary check needs to respect the buffer size
       if (mb.pos.x < mb.baseRadius || mb.pos.x > w - mb.baseRadius) mb.vel.x *= -1;
       if (mb.pos.y < mb.baseRadius || mb.pos.y > h - mb.baseRadius) mb.vel.y *= -1;
 
@@ -188,46 +199,32 @@ class CircleTimer {
       data.push(mb.pos.x, mb.pos.y, r);
     }
 
-    // Clear and render multiple overlapping layers for neon glow effect
+    // Clear and render multiple overlapping layers
     g.clear();
-    g.blendMode(BLEND); // Normal blending with low alpha for neon effect
+    // Blend mode BLEND works well for gradients on white if we use alpha correctly
+    g.blendMode(BLEND); 
     
-    // Render multiple layers with slight color variations and low alpha
-    const time = millis() * 0.001; // Time-based variation for subtle animation
-    for (let layer = 0; layer < this.neonLayers; layer++) {
-      // Create color variation for this layer using time and layer index
-      // This creates smooth, consistent variations without flickering
-      // Similar to reference code's random(-25,25) but time-based
-      const colorVar = sin(time * 0.5 + layer * 0.7) * 25 + cos(time * 0.3 + layer) * 15;
-      
-      // Apply globalAlpha to the layer alpha
-      const currentAlpha = this.blobAlpha * globalAlpha;
-      
-      const layerColor = [
-        constrain(this.fillColor[0] + colorVar, 0, 255) / 255,
-        constrain(this.fillColor[1] + colorVar * 0.8, 0, 255) / 255,
-        constrain(this.fillColor[2] + colorVar * 1.2, 0, 255) / 255,
-        currentAlpha
-      ];
-
-      g.shader(this.metaballShader);
-      // Flatten and normalize metaball colors
-      const flatColors = [];
-      for(let c of this.metaballColors) {
-        flatColors.push(c[0]/255, c[1]/255, c[2]/255);
-      }
-
-      this.metaballShader.setUniform("uResolution", [w, h]);
-      this.metaballShader.setUniform("metaballs", data);
-      this.metaballShader.setUniform("metaballColors", flatColors);
-      this.metaballShader.setUniform("uColor", layerColor);
-      this.metaballShader.setUniform("uThreshold", 1.0);
-      this.metaballShader.setUniform("uCenter", [w * 0.5, h * 0.5]);
-      this.metaballShader.setUniform("uRadius", this.radius);
-      g.rectMode(CENTER);
-      g.noStroke();
-      g.rect(0, 0, w, h);
+    const flatColors = [];
+    for(let c of this.metaballColors) {
+      flatColors.push(c[0]/255, c[1]/255, c[2]/255);
     }
+
+    // Pass the palette colors to the shader
+    this.metaballShader.setUniform("uResolution", [w, h]);
+    this.metaballShader.setUniform("metaballs", data);
+    this.metaballShader.setUniform("metaballColors", flatColors);
+    this.metaballShader.setUniform("uThreshold", 1.0);
+    this.metaballShader.setUniform("uCenter", [w * 0.5, h * 0.5]);
+    this.metaballShader.setUniform("uRadius", currentRadius);
+    this.metaballShader.setUniform("uFuzziness", fuzziness);
+    
+    // We can use uAlphaScalar to control global opacity
+    this.metaballShader.setUniform("uAlphaScalar", this.blobAlpha * globalAlpha);
+
+    g.shader(this.metaballShader);
+    g.rectMode(CENTER);
+    g.noStroke();
+    g.rect(0, 0, w, h);
   }
 
   metaballVert() {
@@ -251,12 +248,12 @@ class CircleTimer {
       uniform vec3 metaballs[${this.metaballCount}];
       uniform vec3 metaballColors[${this.metaballCount}];
       uniform vec2 uResolution;
-      uniform vec4 uColor;
       uniform float uThreshold;
       uniform vec2 uCenter;
       uniform float uRadius;
+      uniform float uFuzziness;
+      uniform float uAlphaScalar;
 
-      // Simple noise function for texture
       float random (vec2 st) {
           return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
       }
@@ -265,17 +262,18 @@ class CircleTimer {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Mask: only draw inside the circle radius
-        if (distance(vec2(x, y), uCenter) > uRadius) {
-          discard;
+        // Hard clipping at outer radius, but allow growth
+        if (uFuzziness <= 0.0) {
+          if (distance(vec2(x, y), uCenter) > uRadius) {
+            discard;
+          }
         }
 
         float v = 0.0;
         vec3 accumColor = vec3(0.0);
         float totalWeight = 0.0;
         
-        // Watercolor diffusion: add noise to position lookup or texture
-        vec2 noisePos = vec2(x, y) * 0.05; // Scale for noise texture
+        vec2 noisePos = vec2(x, y) * 0.05; 
         float n = random(noisePos);
 
         for (int i = 0; i < ${this.metaballCount}; i++) {
@@ -283,7 +281,9 @@ class CircleTimer {
           float dx = ball.x - x;
           float dy = ball.y - y;
           float r = ball.z;
-          float influence = r * r / (dx * dx + dy * dy + 1e-5);
+          // Soft diffuse influence function
+          // Increase divisor slightly to soften
+          float influence = r * r / (dx * dx + dy * dy + 200.0); 
           v += influence;
           
           accumColor += metaballColors[i] * influence;
@@ -292,26 +292,41 @@ class CircleTimer {
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
-        // Add some noise to the threshold for "watercolor" paper/bleeding effect
-        // Modulate threshold slightly with noise to create irregular edges
-        float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+        // Threshold for edge
+        float threshold = uThreshold * 0.8;
 
-        if (v >= threshold) {
-          float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-          float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
-          
-          // Soften the alpha based on field strength v (simulating watercolor accumulation)
-          float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
-          
-          // Use uColor.a as the base alpha control from the JS side
-          float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
-          
-          // Slight color modulation with noise for texture
-          vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-          
-          gl_FragColor = vec4(finalColor, finalAlpha);
+        // Glass texture: Add subtle white noise modulation
+        // On white background, adding white makes it lighter ("frosted")
+        vec3 texturedColor = mix(blendedColor, vec3(1.0), n * 0.2);
+
+        if (uFuzziness > 0.0) {
+            // Fuzzy mode
+            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
+            float upperBound = threshold + (uFuzziness * 0.5); 
+            
+            float alpha = smoothstep(lowerBound, upperBound, v);
+            
+            gl_FragColor = vec4(texturedColor, alpha * uAlphaScalar);
+            
         } else {
-          gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+            // Normal mode
+            // Soft edges: widen the smoothstep range
+            float alphaStrength = smoothstep(threshold - 0.2, threshold + 0.3, v);
+            
+            if (alphaStrength > 0.01) {
+              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
+              
+              // Edge glow / Rim Light (white rim)
+              // Only apply if near the edge of the clipping circle
+              float edgeGlow = smoothstep(0.85, 1.0, distFromCenter);
+              
+              // Mix in white for the rim
+              vec3 finalColor = mix(texturedColor, vec3(1.0), edgeGlow * 0.6);
+
+              gl_FragColor = vec4(finalColor, alphaStrength * uAlphaScalar);
+            } else {
+              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+            }
         }
       }
     `;
