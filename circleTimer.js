@@ -125,7 +125,10 @@ class CircleTimer {
       // "Slowly growing"
       // Use the configured beyondDuration for the growth speed
       const growDuration = this.beyondDuration;
-      const t = constrain(beyondElapsed / growDuration, 0, 1);
+      let tLinear = constrain(beyondElapsed / growDuration, 0, 1);
+
+      // Use smoothstep for t to make the start of the transition non-linear (slow acceleration)
+      const t = tLinear * tLinear * (3 - 2 * tLinear);
       
       // Progress stays 1.0 (full size metaballs)
       progress = 1.0;
@@ -133,8 +136,7 @@ class CircleTimer {
       // Fuzziness increases
       fuzziness = t;
       
-      // Radius expands slightly to assist shader transition if used
-      // But now main constraint logic is in renderMetaballs
+      // Radius expands smoothly
       let maxR = max(width, height);
       renderRadius = lerp(this.radius, maxR, t);
     }
@@ -307,12 +309,14 @@ class CircleTimer {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Clip outside radius if we are in normal rigid-circle mode.
-        // In "Beyond" mode (uFuzziness > 0), we disable this clip to allow blobs to flow freely.
-        if (uFuzziness <= 0.0) {
-            if (distance(vec2(x, y), uCenter) > uRadius) {
-                discard;
-            }
+        // Container soft clip
+        // Use uRadius to define the visible area.
+        // We use a smoothstep to create a soft edge, preventing harsh discard.
+        float dist = distance(vec2(x, y), uCenter);
+        float containerAlpha = 1.0 - smoothstep(uRadius - 1.0, uRadius + 1.0, dist);
+
+        if (containerAlpha <= 0.0) {
+            discard;
         }
 
         float v = 0.0;
@@ -362,7 +366,8 @@ class CircleTimer {
         // Reduce edge glow influence as we get fuzzy
         float glowInfluence = mix(0.6 + 0.4 * edgeGlow, 1.0, uFuzziness);
 
-        float finalAlpha = uColor.a * alpha * glowInfluence;
+        // Combine all alphas: blob alpha * edge glow * container soft clip
+        float finalAlpha = uColor.a * alpha * glowInfluence * containerAlpha;
 
         if (finalAlpha < 0.01) {
             // Discard purely transparent pixels to save fill rate?
