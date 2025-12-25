@@ -23,7 +23,7 @@ let lastSensor2 = null; // for simple debounce on start trigger
 function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
-  background(30);
+  background(255);
 
   // Initialize serial connection
   try {
@@ -61,7 +61,7 @@ function startNewTimer() {
 }
 
 function draw() {
-  background(30);
+  background(255);
   
   if (mode === 'LANDING') {
     drawLanding();
@@ -83,7 +83,7 @@ function draw() {
          stroke(0);
          strokeWeight(4);
          strokeJoin(ROUND);
-         fill(255);
+         fill(50);
          textSize(48);
          textAlign(CENTER, CENTER);
          text("Beyond " + timeStr, width/2, height/2);
@@ -129,12 +129,12 @@ function drawSetup() {
   
   // Draw preview circle using smoothed radius
   noFill();
-  stroke(255);
+  stroke(55);
   strokeWeight(2);
   circle(width / 2, height / 2, currentDisplayRadius * 2);
   
   // Draw duration text
-  fill(255);
+  fill(55);
   noStroke();
   textSize(32);
   text(durationInput + "s", width / 2, height / 2);
