@@ -100,7 +100,7 @@ function draw() {
 }
 
 function drawLanding() {
-  fill(255);
+  fill(0);
   textSize(32);
   text("Press 's' to enter Full Screen", width / 2, height / 2);
 }
