@@ -1,4 +1,8 @@
 class CircleTimer {
+  /*
+  MODIFIED:
+  - Added 'burstApplied' flag for velocity impulse logic.
+  */
   constructor(duration, beyondDurationMinutes, x, y, radius, color) {
     this.duration = duration * 1000;
     this.beyondDuration = (beyondDurationMinutes || 1) * 60 * 1000;
@@ -10,6 +14,9 @@ class CircleTimer {
     this.isComplete = false;
     this.completionTime = null; 
     
+    // Flag to track if the velocity burst has been applied
+    this.burstApplied = false;
+
     // Color & style
     this.bgColor = [200, 200, 200];
     // Set fill color with 50% transparency (alpha = 128)
@@ -76,14 +83,21 @@ class CircleTimer {
     this.startTime = millis();
     this.isRunning = true;
     this.isComplete = false;
+    this.burstApplied = false;
   }
 
   reset() {
     this.startTime = null;
     this.isRunning = false;
     this.isComplete = false;
+    this.burstApplied = false;
   }
 
+  /*
+  MODIFIED:
+  - Detect completion transition and apply random velocity burst.
+  - Requirement: Instant Velocity Burst.
+  */
   update() {
     if (!this.isRunning || !this.startTime) return;
     const elapsed = millis() - this.startTime;
@@ -92,6 +106,20 @@ class CircleTimer {
       this.isRunning = false;
       if (this.completionTime === null) {
         this.completionTime = millis();
+      }
+
+      // Velocity Burst: Apply once when "Beyond" phase starts
+      if (!this.burstApplied) {
+          for (let mb of this.metaballs) {
+              let center = createVector(this.x, this.y);
+              let dir = p5.Vector.sub(mb.pos, center);
+              dir.normalize();
+              // Random outward impulse (Velocity Impulse)
+              // This creates a "container rupture, energy release" visual tension.
+              let force = random(5, 12);
+              mb.vel.add(dir.mult(force));
+          }
+          this.burstApplied = true;
       }
     }
   }
@@ -122,17 +150,23 @@ class CircleTimer {
       // "Slowly growing"
       // Use the configured beyondDuration for the growth speed
       const growDuration = this.beyondDuration;
-      const t = constrain(beyondElapsed / growDuration, 0, 1);
+      let linearT = constrain(beyondElapsed / growDuration, 0, 1);
+
+      // MODIFIED: Non-linear Animation (Easing)
+      // Use smoothstep: t * t * (3 - 2 * t)
+      const t = linearT * linearT * (3 - 2 * linearT);
       
       // Progress stays 1.0 (full size metaballs)
       progress = 1.0;
       
-      // Fuzziness increases
+      // Fuzziness increases with t
       fuzziness = t;
       
-      // Radius grows linearly or smoothly
+      // MODIFIED: Rendering Anti-Clipping
+      // Ensure renderRadius expands slightly faster than the physical particles
+      // preventing edge particles from being cut off by Shader's circular mask.
       let maxR = max(width, height);
-      renderRadius = lerp(this.radius, maxR, t);
+      renderRadius = lerp(this.radius, maxR * 1.5, t); // 1.5 multiplier ensures mask is larger than physics bounds
     }
 
     // Render metaball-style blob into offscreen buffer, then draw it centered
@@ -152,6 +186,11 @@ class CircleTimer {
     image(this.g, width / 2, height / 2);
   }
 
+  /*
+  MODIFIED:
+  - Physical Boundary Smooth Expansion
+  - Dynamic boundary radius (boundRadius) using lerp and fuzziness (t).
+  */
   renderMetaballs(progress, globalAlpha = 1.0, fuzziness = 0.0, renderRadius = null) {
     const g = this.g;
     // Only constrain if not in fuzzy/growth mode
@@ -173,28 +212,29 @@ class CircleTimer {
     const h = g.height;
     
     // Determine bounds for metaballs
-    let minX = 0;
-    let maxX = w;
-    let minY = 0;
-    let maxY = h;
-
-    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
-    // This mimics the previous behavior where they bounced inside the small buffer
-    if (!this.isComplete && fuzziness === 0) {
-        // Use the current radius (or base radius) to define a bounding box around the center
-        // The previous code had a buffer of size radius*2, effectively constraining to radius.
-        const r = this.radius;
-        minX = this.x - r;
-        maxX = this.x + r;
-        minY = this.y - r;
-        maxY = this.y + r;
+    // MODIFIED: Always calculate bounds based on expansion progress
+    let boundRadius = this.radius;
+    if (this.isComplete) {
+        // Use fuzziness (which contains our eased t) to calculate physics bounds
+        // Transition from radius to max(width, height)
+        let maxR = max(width, height);
+        boundRadius = lerp(this.radius, maxR, fuzziness);
     }
+
+    let minX = this.x - boundRadius;
+    let maxX = this.x + boundRadius;
+    let minY = this.y - boundRadius;
+    let maxY = this.y + boundRadius;
+
+    // We don't need the old "if (!isComplete)" block because we set boundRadius above
+    // based on completion state. If !isComplete, fuzziness is 0, so boundRadius is this.radius.
 
     for (let mb of this.metaballs) {
       
       mb.pos.add(mb.vel);
       
       // Bounce off the calculated bounds
+      // MODIFIED: Uses dynamic minX/maxX based on boundRadius
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
           mb.vel.x *= -1;
           // Constrain to ensure they don't get stuck outside if bounds shrink (though bounds only grow here)
@@ -261,6 +301,11 @@ class CircleTimer {
     `;
   }
 
+  /*
+  MODIFIED:
+  - Removed 'if (uFuzziness <= 0.0)' wrapper for discard logic.
+  - Ensures uRadius always acts as a mask, supporting 'Rendering Anti-Clipping'.
+  */
   metaballFrag() {
     return `
       precision highp float;
@@ -282,12 +327,10 @@ class CircleTimer {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
-          }
+        // MODIFIED: Hard clipping at outer radius is now always active.
+        // This ensures the expanding mask (uRadius) logic works as intended.
+        if (distance(vec2(x, y), uCenter) > uRadius) {
+           discard;
         }
 
         float v = 0.0;
