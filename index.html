@@ -3,22 +3,25 @@
   <head>
     <meta charset="utf-8">
     <title></title>
+    <!-- Link to the CSS file for styling -->
     <link rel="stylesheet" href="style.css">
-    <!-- link p5 library -->
+
+    <!-- Link p5.js library (The main engine for graphics) -->
     <script type="text/javascript" src="libs/p5.js"></script>
-    <!-- link p5 sound library -->
+    <!-- Optional libraries (commented out unless needed) -->
     <!-- <script type="text/javascript" src="libs/p5.sound.js"></script> -->
     <!-- <script type="text/javascript" src="libs/p5.serialport.js"></script> -->
     <script type="text/javascript" src="libs/p5.dom.min.js"></script>
   </head>
 
   <body>
+      <!-- This is where the p5.js canvas will be placed -->
       <div id="canvasContainer"></div>
 
-
-    <!-- link CircleTimer class -->
+    <!-- Link our custom code files -->
+    <!-- 1. The CircleTimer class definition -->
     <script type="text/javascript" src="circleTimer.js"></script>
-    <!-- link our own javascript file -->
+    <!-- 2. The main script that runs the application -->
     <script type="text/javascript" src="script.js"></script>
   </body>
 </html>
