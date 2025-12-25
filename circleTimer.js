@@ -1,3 +1,16 @@
+// Global configuration for metaballs
+const METABALL_CONFIG = {
+  // Array of RGB values for individual metaballs
+  colors: [
+      [0, 255, 255],   // Cyan
+      [255, 0, 255],   // Magenta
+      [50, 100, 255],  // Electric Blue
+      [200, 50, 200]   // Violet
+  ],
+  // Base transparency (0.0 to 1.0)
+  transparency: 0.9
+};
+
 class CircleTimer {
   constructor(duration, beyondDurationMinutes, x, y, radius, color) {
     this.duration = duration * 1000;
@@ -31,9 +44,10 @@ class CircleTimer {
     this.metaballs = [];
     // Store color variations for each metaball for watercolor effect
     this.metaballColors = [];
-    // Generate a base hue offset for this timer instance
-    const baseHueOffset = random(0, 360);
     
+    // Use METABALL_CONFIG for colors
+    const configColors = METABALL_CONFIG.colors;
+
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
       this.metaballs.push({
@@ -44,32 +58,17 @@ class CircleTimer {
         baseRadius: this.radius * baseSize
       });
       
-      let h = (baseHueOffset + map(i, 0, this.metaballCount, 0, 360) + random(-30, 30)) % 360;
-      let s = random(0.4, 0.6);
-      let b = random(0.9, 1.0);
+      // Select color from config, cycling if fewer colors than balls
+      const colorIndex = i % configColors.length;
+      // Copy the array to avoid reference issues
+      const c = configColors[colorIndex];
       
-      let c = b * s;
-      let x = c * (1 - Math.abs((h / 60) % 2 - 1));
-      let m = b - c;
-      
-      let r, g, bl;
-      if (h < 60) { r = c; g = x; bl = 0; }
-      else if (h < 120) { r = x; g = c; bl = 0; }
-      else if (h < 180) { r = 0; g = c; bl = x; }
-      else if (h < 240) { r = 0; g = x; bl = c; }
-      else if (h < 300) { r = x; g = 0; bl = c; }
-      else { r = c; g = 0; bl = x; }
-      
-      this.metaballColors.push([
-        (r + m) * 255,
-        (g + m) * 255,
-        (bl + m) * 255
-      ]);
+      this.metaballColors.push([c[0], c[1], c[2]]);
     }
     // Number of overlapping layers for neon glow effect
     this.neonLayers = 5;
     // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
-    this.blobAlpha = 0.9;
+    this.blobAlpha = METABALL_CONFIG.transparency;
   }
 
   start() {
