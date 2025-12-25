@@ -281,20 +281,20 @@ class CircleTimer {
       void main() {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
+        vec2 p = vec2(x, y);
+        float dist = distance(p, uCenter);
 
-        // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
-          }
-        }
+        // 1. Calculate Mask (Soft Clipping)
+        // This replaces the hard discard logic.
+        // It smoothly fades out content outside uRadius.
+        // Since uRadius expands in the Beyond phase, the mask naturally expands.
+        float containerMask = 1.0 - smoothstep(uRadius, uRadius + 1.0, dist);
 
         float v = 0.0;
         vec3 accumColor = vec3(0.0);
         float totalWeight = 0.0;
         
-        vec2 noisePos = vec2(x, y) * 0.05; 
+        vec2 noisePos = p * 0.05;
         float n = random(noisePos);
 
         for (int i = 0; i < ${this.metaballCount}; i++) {
@@ -311,38 +311,42 @@ class CircleTimer {
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
-        float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+        // Base threshold logic
+        float noisyThreshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
 
-        if (uFuzziness > 0.0) {
-            // Fuzzy mode
-            // Map v to alpha smoothly
-            // As uFuzziness increases, we want to see lower v values (softer edges)
-            // When uFuzziness is 1.0, we might want visible alpha down to v ~ 0.1
-            
-            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.2); 
-            
-            float alpha = smoothstep(lowerBound, upperBound, v);
-            
-            // Texture
-            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-            
-            gl_FragColor = vec4(finalColor, alpha * uColor.a);
-            
-        } else {
-            // Normal mode
-            if (v >= threshold) {
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
-              
-              float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
-              float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
-              vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-              gl_FragColor = vec4(finalColor, finalAlpha);
-            } else {
-              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-            }
-        }
+        // 2. Interpolate smoothstep bounds based on uFuzziness
+        // This unifies the "sharp" vs "fuzzy" modes.
+        // As uFuzziness goes 0->1, the lower bound drops (allowing expansion)
+        // and the upper bound tightens slightly or shifts.
+
+        // Lower bound: starts at noisyThreshold, drops to ~5% of it
+        float stepStart = mix(noisyThreshold, noisyThreshold * 0.05, uFuzziness);
+
+        // Upper bound: starts at noisyThreshold + 0.5, ends at noisyThreshold + 0.2
+        float stepEnd = mix(noisyThreshold + 0.5, noisyThreshold + 0.2, uFuzziness);
+
+        float blobAlpha = smoothstep(stepStart, stepEnd, v);
+
+        // 3. Edge Glow Logic
+        // Calculate the radial attenuation (edge glow) for the container.
+        // In normal mode (fuzz=0), we want the edge glow.
+        // In fuzzy mode (fuzz=1), we want no edge glow (factor 1.0).
+
+        float normDist = dist / uRadius;
+        float glowSignal = 1.0 - smoothstep(0.7, 1.0, normDist); // 1.0 at center, 0.0 at edge
+        float glowFactor = 0.6 + 0.4 * glowSignal; // 1.0 at center, 0.6 at edge
+
+        // Interpolate: full effect at fuzz=0, no effect at fuzz=1
+        float radialAlphaMod = mix(glowFactor, 1.0, uFuzziness);
+
+        // 4. Final Composition
+        // Combine blob alpha, radial attenuation, container mask, and global color alpha.
+        float finalAlpha = blobAlpha * uColor.a * radialAlphaMod * containerMask;
+
+        // Apply noise texture to color
+        vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+
+        gl_FragColor = vec4(finalColor, finalAlpha);
       }
     `;
   }
