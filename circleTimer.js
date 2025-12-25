@@ -172,21 +172,36 @@ class CircleTimer {
     const h = g.height;
     
     // Determine bounds for metaballs
-    let minX = 0;
-    let maxX = w;
-    let minY = 0;
-    let maxY = h;
+    // Base bounds (constrained to radius)
+    const r = this.radius;
+    let targetMinX = this.x - r;
+    let targetMaxX = this.x + r;
+    let targetMinY = this.y - r;
+    let targetMaxY = this.y + r;
 
-    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
-    // This mimics the previous behavior where they bounced inside the small buffer
-    if (!this.isComplete && fuzziness === 0) {
-        // Use the current radius (or base radius) to define a bounding box around the center
-        // The previous code had a buffer of size radius*2, effectively constraining to radius.
-        const r = this.radius;
-        minX = this.x - r;
-        maxX = this.x + r;
-        minY = this.y - r;
-        maxY = this.y + r;
+    // Full screen bounds
+    const fullMinX = 0;
+    const fullMaxX = w;
+    const fullMinY = 0;
+    const fullMaxY = h;
+
+    let minX, maxX, minY, maxY;
+
+    // If we are in the "Beyond" expansion phase, smoothly expand bounds
+    if (this.isComplete) {
+         // Interpolate based on fuzziness (which is 't' from draw() and represents progress 0-1)
+         let t = fuzziness;
+
+         minX = lerp(targetMinX, fullMinX, t);
+         maxX = lerp(targetMaxX, fullMaxX, t);
+         minY = lerp(targetMinY, fullMinY, t);
+         maxY = lerp(targetMaxY, fullMaxY, t);
+    } else {
+        // Strict constraint when not complete
+        minX = targetMinX;
+        maxX = targetMaxX;
+        minY = targetMinY;
+        maxY = targetMaxY;
     }
 
     for (let mb of this.metaballs) {
