@@ -123,25 +123,19 @@ class CircleTimer {
       const growDuration = this.beyondDuration;
       const t = constrain(beyondElapsed / growDuration, 0, 1);
       
-      // Progress stays 1.0 (full size metaballs)
-      progress = 1.0;
-      
       // Fuzziness increases
       fuzziness = t;
       
       // Radius grows linearly or smoothly
-      let maxR = max(width, height);
+      // Use a large enough radius to cover the corners
+      let maxR = max(width, height) * 1.5;
       renderRadius = lerp(this.radius, maxR, t);
-    }
 
-    // Render metaball-style blob into offscreen buffer, then draw it centered
-    if (this.isComplete) {
-        // Calculate growth scale for metaballs
-        // We want them to grow to fill the screen visually
-        let maxR = max(width, height); 
-        let growthRatio = maxR / (this.radius > 1 ? this.radius : 1);
-        // Animate scale from 1.0 to growthRatio over the duration (captured by fuzziness t)
-        progress = lerp(1.0, growthRatio, fuzziness);
+      // Calculate growth scale for metaballs
+      // We want them to grow to fill the screen visually
+      let growthRatio = maxR / (this.radius > 1 ? this.radius : 1);
+      // Animate scale from 1.0 to growthRatio over the duration
+      progress = lerp(1.0, growthRatio, t);
     }
 
     this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
@@ -282,11 +276,9 @@ class CircleTimer {
         float y = vTexCoord.y * uResolution.y;
 
         // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
-          }
+        // We always clip at uRadius, which expands in the 'Beyond' phase
+        if (distance(vec2(x, y), uCenter) > uRadius) {
+          discard;
         }
 
         float v = 0.0;
