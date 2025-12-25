@@ -145,7 +145,14 @@ class CircleTimer {
         progress = lerp(1.0, growthRatio, fuzziness);
     }
 
-    this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
+    // Adjust fuzziness for rendering to keep blobs solid (not too blurry)
+    // We scale it down significantly so the shader keeps edges sharper
+    let visualFuzziness = fuzziness;
+    if (this.isComplete) {
+        visualFuzziness = fuzziness * 0.15;
+    }
+
+    this.renderMetaballs(progress, globalAlpha, visualFuzziness, renderRadius);
     
     // Draw the full-screen buffer aligned with the canvas
     imageMode(CENTER);
@@ -192,7 +199,12 @@ class CircleTimer {
 
     for (let mb of this.metaballs) {
       
-      mb.pos.add(mb.vel);
+      // Slow motion effect when complete (15% of original speed)
+      if (this.isComplete) {
+        mb.pos.add(p5.Vector.mult(mb.vel, 0.15));
+      } else {
+        mb.pos.add(mb.vel);
+      }
       
       // Bounce off the calculated bounds
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
