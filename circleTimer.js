@@ -133,7 +133,8 @@ class CircleTimer {
       // Fuzziness increases
       fuzziness = t;
       
-      // Radius grows linearly or smoothly
+      // Radius expands slightly to assist shader transition if used
+      // But now main constraint logic is in renderMetaballs
       let maxR = max(width, height);
       renderRadius = lerp(this.radius, maxR, t);
     }
@@ -179,19 +180,46 @@ class CircleTimer {
     const h = g.height;
     
     // Determine bounds for metaballs
-    // Use the currentRadius to define a bounding box around the center
-    const r = currentRadius;
-    const minX = this.x - r;
-    const maxX = this.x + r;
-    const minY = this.y - r;
-    const maxY = this.y + r;
+    let minX, maxX, minY, maxY;
+
+    if (fuzziness > 0) {
+        // In "Beyond" mode: Bounds transition from initial Radius (square) to Screen Size (rect)
+        // Transition based on fuzziness (t)
+
+        // Initial bounds (centered square)
+        const r = this.radius;
+        const startMinX = this.x - r;
+        const startMaxX = this.x + r;
+        const startMinY = this.y - r;
+        const startMaxY = this.y + r;
+
+        // Target bounds (full screen)
+        const endMinX = 0;
+        const endMaxX = w;
+        const endMinY = 0;
+        const endMaxY = h;
+
+        // Interpolate
+        minX = lerp(startMinX, endMinX, fuzziness);
+        maxX = lerp(startMaxX, endMaxX, fuzziness);
+        minY = lerp(startMinY, endMinY, fuzziness);
+        maxY = lerp(startMaxY, endMaxY, fuzziness);
+
+    } else {
+        // Normal mode: Bounds are centered square defined by radius
+        const r = currentRadius;
+        minX = this.x - r;
+        maxX = this.x + r;
+        minY = this.y - r;
+        maxY = this.y + r;
+    }
 
     for (let mb of this.metaballs) {
       
       mb.pos.add(mb.vel);
       
       // Bounce off the calculated bounds
-      // Constrain particles to the current growing radius
+      // Constrain particles to the calculated bounds
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
           mb.vel.x *= -1;
           mb.pos.x = constrain(mb.pos.x, minX + mb.baseRadius, maxX - mb.baseRadius);
@@ -279,9 +307,12 @@ class CircleTimer {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Clip outside radius. Since uRadius expands in JS, this container grows naturally.
-        if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
+        // Clip outside radius if we are in normal rigid-circle mode.
+        // In "Beyond" mode (uFuzziness > 0), we disable this clip to allow blobs to flow freely.
+        if (uFuzziness <= 0.0) {
+            if (distance(vec2(x, y), uCenter) > uRadius) {
+                discard;
+            }
         }
 
         float v = 0.0;
