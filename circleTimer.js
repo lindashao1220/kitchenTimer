@@ -150,8 +150,11 @@ class CircleTimer {
       fuzziness = t;
       
       // Radius grows linearly or smoothly
-      let maxR = max(width, height);
-      renderRadius = lerp(this.radius, maxR, t);
+      // let maxR = max(width, height);
+      // renderRadius = lerp(this.radius, maxR, t);
+      // Update: Keep renderRadius fixed to original radius so the container
+      // appears to dissolve while blobs grow out (handled in shader)
+      renderRadius = this.radius;
     }
 
     // Render metaball-style blob into offscreen buffer, then draw it centered
@@ -261,19 +264,35 @@ class CircleTimer {
       void main() {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
+        vec2 st = vec2(x, y);
 
-        // Hard clipping at outer radius, but allow growth
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
-          }
-        }
+        // --- MASK LOGIC ---
+        float distCenter = distance(st, uCenter);
 
+        // Calculate dynamic mask radius
+        // When uFuzziness (t) is 0, limit is uRadius.
+        // As t increases, limit expands to cover screen.
+        float maxDimension = max(uResolution.x, uResolution.y);
+        // Expansion logic:
+        // We want the mask to open up.
+        // pow(uFuzziness, 0.5) makes it start opening quickly then linear-ish
+        float t = uFuzziness;
+        float expansion = maxDimension * 1.5 * t;
+
+        float currentMaskRadius = uRadius + expansion;
+
+        // Soft mask edge (20px feather)
+        float maskAlpha = 1.0 - smoothstep(currentMaskRadius, currentMaskRadius + 20.0, distCenter);
+
+        // Optimization: if fully masked, discard
+        if (maskAlpha <= 0.0) discard;
+
+        // --- METABALL CALC ---
         float v = 0.0;
         vec3 accumColor = vec3(0.0);
         float totalWeight = 0.0;
         
-        vec2 noisePos = vec2(x, y) * 0.05; 
+        vec2 noisePos = st * 0.05;
         float n = random(noisePos);
 
         for (int i = 0; i < ${this.metaballCount}; i++) {
@@ -282,7 +301,7 @@ class CircleTimer {
           float dy = ball.y - y;
           float r = ball.z;
           // Soft diffuse influence function
-          // Increase divisor slightly to soften
+          // Increase divisor slightly to soften core
           float influence = r * r / (dx * dx + dy * dy + 200.0); 
           v += influence;
           
@@ -292,42 +311,47 @@ class CircleTimer {
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
-        // Threshold for edge
+        // Base threshold
         float threshold = uThreshold * 0.8;
 
         // Glass texture: Add subtle white noise modulation
-        // On white background, adding white makes it lighter ("frosted")
         vec3 texturedColor = mix(blendedColor, vec3(1.0), n * 0.2);
 
-        if (uFuzziness > 0.0) {
-            // Fuzzy mode
-            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.5); 
-            
-            float alpha = smoothstep(lowerBound, upperBound, v);
-            
-            gl_FragColor = vec4(texturedColor, alpha * uAlphaScalar);
-            
-        } else {
-            // Normal mode
-            // Soft edges: widen the smoothstep range
-            float alphaStrength = smoothstep(threshold - 0.2, threshold + 0.3, v);
-            
-            if (alphaStrength > 0.01) {
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              
-              // Edge glow / Rim Light (white rim)
-              // Only apply if near the edge of the clipping circle
-              float edgeGlow = smoothstep(0.85, 1.0, distFromCenter);
-              
-              // Mix in white for the rim
-              vec3 finalColor = mix(texturedColor, vec3(1.0), edgeGlow * 0.6);
+        // --- ALPHA / EDGE LOGIC ---
+        // Interpolate between "Normal" (sharp/contained) and "Fuzzy" (soft/cloudy) parameters
 
-              gl_FragColor = vec4(finalColor, alphaStrength * uAlphaScalar);
-            } else {
-              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-            }
-        }
+        // Normal Mode (t=0):
+        // smoothstep(threshold - 0.2, threshold + 0.3, v) -> approx (0.6, 1.1)
+
+        // Fuzzy Mode (t=1):
+        // We want it softer. Maybe (0.2, 1.2) or (0.1, 1.5)
+
+        float edgeMin = mix(threshold - 0.2, threshold * 0.2, t);
+        float edgeMax = mix(threshold + 0.3, threshold + 0.5, t);
+
+        float alpha = smoothstep(edgeMin, edgeMax, v);
+
+        // Apply global alpha & mask
+        alpha = alpha * uAlphaScalar * maskAlpha;
+
+        if (alpha < 0.01) discard;
+
+        // --- RIM LIGHT LOGIC ---
+        // Rim light on the ORIGINAL CONTAINER circle
+        // It should fade out as we go beyond
+        float distRatio = distCenter / uRadius;
+
+        // Only show rim if we are near the original radius
+        // And fade it out as t increases
+        float edgeGlow = smoothstep(0.85, 1.0, distRatio);
+
+        // Fade out quickly as t increases to avoid a ghost ring
+        float rimIntensity = edgeGlow * 0.6 * (1.0 - t * 3.0);
+        rimIntensity = max(0.0, rimIntensity);
+
+        vec3 finalColor = mix(texturedColor, vec3(1.0), rimIntensity);
+
+        gl_FragColor = vec4(finalColor, alpha);
       }
     `;
   }
