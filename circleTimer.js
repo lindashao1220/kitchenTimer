@@ -10,9 +10,6 @@ class CircleTimer {
     this.isComplete = false;
     this.completionTime = null; 
     
-    // Track if we have resized for the "Beyond" phase
-    this.resizedForBeyond = false;
-
     // Color & style
     this.bgColor = [200, 200, 200];
     // Set fill color with 50% transparency (alpha = 128)
@@ -23,9 +20,10 @@ class CircleTimer {
     }
     this.strokeColor = [255];
     
-    // Metaball shader setup (offscreen WEBGL buffer so UI stays 2D)
+    // Metaball shader setup (full-screen WEBGL buffer)
     this.metaballCount = 12;
-    this.g = createGraphics(this.radius * 2, this.radius * 2, WEBGL);
+    // Use full canvas size for the buffer to allow seamless expansion
+    this.g = createGraphics(width, height, WEBGL);
     this.g.noStroke();
     this.g.pixelDensity(1);
     this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
@@ -39,7 +37,8 @@ class CircleTimer {
     for (let i = 0; i < this.metaballCount; i++) {
       const baseSize = random(0.3, 0.6);
       this.metaballs.push({
-        pos: createVector(this.g.width / 2, this.g.height / 2),
+        // Initialize positions at the timer's center (this.x, this.y)
+        pos: createVector(this.x, this.y),
         // random velocity
         vel: p5.Vector.random2D().mult(random(1, 3)),
         baseRadius: this.radius * baseSize
@@ -119,39 +118,6 @@ class CircleTimer {
     
     // "Beyond" logic: Grow and become fuzzy instead of shrinking
     if (this.isComplete) {
-      // Handle resizing of buffer once
-      if (!this.resizedForBeyond) {
-        let oldW = this.g.width;
-        let oldH = this.g.height;
-        
-        // Remove old buffer if possible (optional but good for memory)
-        if (this.g.remove) {
-             this.g.remove();
-        }
-        
-        // Create new full-screen buffer
-        // Note: 'width' and 'height' are p5 global variables for canvas size
-        this.g = createGraphics(width, height, WEBGL);
-        this.g.noStroke();
-        this.g.pixelDensity(1);
-        
-        // Re-create and assign shader for the new context
-        this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
-        this.g.shader(this.metaballShader);
-        
-        this.resizedForBeyond = true;
-        
-        // Shift metaballs to new center
-        let newW = this.g.width;
-        let newH = this.g.height;
-        let shiftX = (newW - oldW) / 2;
-        let shiftY = (newH - oldH) / 2;
-        
-        for (let mb of this.metaballs) {
-          mb.pos.add(shiftX, shiftY);
-        }
-      }
-
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
       // "Slowly growing"
       // Use the configured beyondDuration for the growth speed
@@ -180,8 +146,10 @@ class CircleTimer {
     }
 
     this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
+    
+    // Draw the full-screen buffer aligned with the canvas
     imageMode(CENTER);
-    image(this.g, this.x, this.y);
+    image(this.g, width / 2, height / 2);
   }
 
   renderMetaballs(progress, globalAlpha = 1.0, fuzziness = 0.0, renderRadius = null) {
@@ -203,14 +171,39 @@ class CircleTimer {
     const data = [];
     const w = g.width;
     const h = g.height;
-    const center = createVector(w / 2, h / 2);
+    
+    // Determine bounds for metaballs
+    let minX = 0;
+    let maxX = w;
+    let minY = 0;
+    let maxY = h;
+
+    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
+    // This mimics the previous behavior where they bounced inside the small buffer
+    if (!this.isComplete && fuzziness === 0) {
+        // Use the current radius (or base radius) to define a bounding box around the center
+        // The previous code had a buffer of size radius*2, effectively constraining to radius.
+        const r = this.radius;
+        minX = this.x - r;
+        maxX = this.x + r;
+        minY = this.y - r;
+        maxY = this.y + r;
+    }
 
     for (let mb of this.metaballs) {
       
       mb.pos.add(mb.vel);
-      // Boundary check needs to respect the buffer size
-      if (mb.pos.x < mb.baseRadius || mb.pos.x > w - mb.baseRadius) mb.vel.x *= -1;
-      if (mb.pos.y < mb.baseRadius || mb.pos.y > h - mb.baseRadius) mb.vel.y *= -1;
+      
+      // Bounce off the calculated bounds
+      if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
+          mb.vel.x *= -1;
+          // Constrain to ensure they don't get stuck outside if bounds shrink (though bounds only grow here)
+          mb.pos.x = constrain(mb.pos.x, minX + mb.baseRadius, maxX - mb.baseRadius);
+      }
+      if (mb.pos.y < minY + mb.baseRadius || mb.pos.y > maxY - mb.baseRadius) {
+          mb.vel.y *= -1;
+          mb.pos.y = constrain(mb.pos.y, minY + mb.baseRadius, maxY - mb.baseRadius);
+      }
 
       const r = mb.baseRadius * p;
       data.push(mb.pos.x, mb.pos.y, r);
@@ -243,7 +236,8 @@ class CircleTimer {
       this.metaballShader.setUniform("metaballColors", flatColors);
       this.metaballShader.setUniform("uColor", layerColor);
       this.metaballShader.setUniform("uThreshold", 1.0);
-      this.metaballShader.setUniform("uCenter", [w * 0.5, h * 0.5]);
+      // Use the actual position as the center, since the buffer is full screen
+      this.metaballShader.setUniform("uCenter", [this.x, this.y]);
       this.metaballShader.setUniform("uRadius", currentRadius);
       this.metaballShader.setUniform("uFuzziness", fuzziness);
       
