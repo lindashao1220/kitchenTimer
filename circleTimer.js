@@ -102,14 +102,6 @@ class CircleTimer {
   }
 
   draw() {
-    // Draw outer background circle
-    if (!this.isComplete) {
-      noFill();
-      stroke(this.strokeColor);
-      strokeWeight(2);
-      circle(this.x, this.y, this.radius * 2);
-    }
-
     let progress = this.getProgress();
     let globalAlpha = 1.0;
     let fuzziness = 0.0;
@@ -121,7 +113,7 @@ class CircleTimer {
       
       // 't' goes from 0 to 1 over the 'Beyond' duration
       const growDuration = this.beyondDuration;
-      const t = constrain(beyondElapsed / growDuration, 0, 1);
+      // const t = constrain(beyondElapsed / growDuration, 0, 1); // Unused
       
       // Keep progress at full (big blobs)
       progress = 1.0;
@@ -130,8 +122,19 @@ class CircleTimer {
       fuzziness = 0.0;
       
       // The drawing area grows from the original circle to fill the screen
-      renderRadius = max(width, height) * 2;
+      // Match the physics expansion time (5 seconds)
+      let t_exp = constrain(beyondElapsed / 5000, 0, 1);
+      t_exp = t_exp * t_exp * (3 - 2 * t_exp); // Smoothstep
+
+      renderRadius = lerp(this.radius, max(width, height) * 1.5, t_exp);
     }
+
+    // Draw outer background circle
+    // Draw it even if complete, expanding with the renderRadius
+    noFill();
+    stroke(this.strokeColor);
+    strokeWeight(2);
+    circle(this.x, this.y, renderRadius * 2);
 
     this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
     
