@@ -1,6 +1,8 @@
 // Global configuration for metaballs
+// This object makes it easy to change colors and transparency without hunting through the code.
 const METABALL_CONFIG = {
   // Array of RGB values for individual metaballs
+  // These are the "electric" colors: Cyan, Magenta, Electric Blue, Violet
   colors: [
       [0, 255, 255],   // Cyan
       [255, 0, 255],   // Magenta
@@ -8,20 +10,34 @@ const METABALL_CONFIG = {
       [200, 50, 200]   // Violet
   ],
   // Base transparency (0.0 to 1.0)
+  // Higher values make the blobs more opaque.
   transparency: 0.9
 };
 
+/**
+ * CircleTimer Class
+ *
+ * This class acts as a "blueprint" for our timer. It handles:
+ * 1. Tracking time (start, update, complete).
+ * 2. Simulating physics (the drifting "metaball" blobs).
+ * 3. Rendering the visuals using advanced graphics (shaders).
+ */
 class CircleTimer {
   constructor(duration, beyondDurationMinutes, x, y, radius, color) {
-    this.duration = duration * 1000;
-    this.beyondDuration = (beyondDurationMinutes || 1) * 60 * 1000;
+    // Time settings
+    this.duration = duration * 1000; // Convert seconds to milliseconds
+    this.beyondDuration = (beyondDurationMinutes || 1) * 60 * 1000; // Convert minutes to milliseconds
+
+    // Position and Size
     this.x = x;
     this.y = y;
     this.radius = radius;
-    this.startTime = null;
-    this.isRunning = false;
-    this.isComplete = false;
-    this.completionTime = null; 
+
+    // State tracking variables
+    this.startTime = null;      // When the timer started
+    this.isRunning = false;     // Is it currently counting down?
+    this.isComplete = false;    // Has it finished the main countdown?
+    this.completionTime = null; // When did it finish? (Used for the "Beyond" phase animation)
     
     // Color & style
     this.bgColor = [200, 200, 200];
@@ -29,128 +45,149 @@ class CircleTimer {
     if (color && color.length >= 3) {
       this.fillColor = [color[0], color[1], color[2]];
     } else {
-      this.fillColor = [90, 100, 22, 128];
+      this.fillColor = [90, 100, 22, 128]; // Default greenish color
     }
-    this.strokeColor = [55];
+    this.strokeColor = [55]; // Dark grey for the circle outline
+
+    // --- Metaball Setup ---
+    // Metaballs are the organic, blobby shapes inside the timer.
+    // We use a specialized "Shader" to draw them because it's much faster
+    // and allows for cool effects like blending and neon glows.
     
-    // Metaball shader setup (full-screen WEBGL buffer)
-    this.metaballCount = 12;
-    // Use full canvas size for the buffer to allow seamless expansion
+    this.metaballCount = 12; // How many blobs?
+
+    // We create a separate graphics buffer (like a virtual canvas) to draw the shader.
+    // We use the full window size so the blobs can eventually drift anywhere on screen.
     this.g = createGraphics(width, height, WEBGL);
     this.g.noStroke();
     this.g.pixelDensity(1);
+
+    // Load the shader programs (defined at the bottom of this file)
     this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
     this.g.shader(this.metaballShader);
+
     this.metaballs = [];
-    // Store color variations for each metaball for watercolor effect
-    this.metaballColors = [];
+    this.metaballColors = []; // Store specific colors for each blob
     
-    // Use METABALL_CONFIG for colors
+    // Initialize our blobs
     const configColors = METABALL_CONFIG.colors;
 
     for (let i = 0; i < this.metaballCount; i++) {
-      const baseSize = random(0.3, 0.6);
+      const baseSize = random(0.3, 0.6); // Randomize size relative to the timer
+
+      // Each blob is an object with position, velocity (movement), and size
       this.metaballs.push({
-        // Initialize positions at the timer's center (this.x, this.y)
-        pos: createVector(this.x, this.y),
-        // random velocity
-        vel: p5.Vector.random2D().mult(random(1, 3)),
+        pos: createVector(this.x, this.y), // Start at the center
+        vel: p5.Vector.random2D().mult(random(1, 3)), // Move in a random direction
         baseRadius: this.radius * baseSize
       });
       
-      // Select color from config, cycling if fewer colors than balls
+      // Assign a color from our config, cycling through the list
       const colorIndex = i % configColors.length;
-      // Copy the array to avoid reference issues
       const c = configColors[colorIndex];
-      
       this.metaballColors.push([c[0], c[1], c[2]]);
     }
-    // Number of overlapping layers for neon glow effect
-    this.neonLayers = 5;
-    // Blob alpha transparency (0.0 = transparent, 1.0 = opaque)
+
+    // Visual tweak settings
+    this.neonLayers = 5; // How many times we draw to create the "glow" look
     this.blobAlpha = METABALL_CONFIG.transparency;
   }
 
+  // Starts the timer
   start() {
     this.startTime = millis();
     this.isRunning = true;
     this.isComplete = false;
   }
 
+  // Resets the timer to initial state
   reset() {
     this.startTime = null;
     this.isRunning = false;
     this.isComplete = false;
   }
 
+  // Called every frame to check if time is up
   update() {
     if (!this.isRunning || !this.startTime) return;
+
     const elapsed = millis() - this.startTime;
+
+    // If we passed the duration, mark as complete
     if (elapsed >= this.duration) {
       this.isComplete = true;
       this.isRunning = false;
+
+      // Record the exact time we finished, so we can animate the "Beyond" phase relative to this moment
       if (this.completionTime === null) {
         this.completionTime = millis();
       }
     }
   }
 
+  // Returns a number from 0.0 to 1.0 representing how much time has passed
   getProgress() {
     if (!this.startTime) return 0;
     const elapsed = millis() - this.startTime;
     return constrain(elapsed / this.duration, 0, 1);
   }
 
+  // The main drawing function
   draw() {
     let progress = this.getProgress();
     let globalAlpha = 1.0;
     let fuzziness = 0.0;
     let renderRadius = this.radius;
+    let currentStrokeColor = this.strokeColor;
+
+    // --- Beyond Phase Logic ---
+    // If the timer is complete, we enter the "Beyond" phase where:
+    // 1. The blobs stop shrinking and stay big.
+    // 2. The boundary circle expands to fill the screen.
+    // 3. The outline fades to white.
     
-    // "Beyond" logic: Grow and become fuzzy instead of shrinking
     if (this.isComplete) {
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
       
-      // 't' goes from 0 to 1 over the 'Beyond' duration
-      const growDuration = this.beyondDuration;
-      // const t = constrain(beyondElapsed / growDuration, 0, 1); // Unused
-      
-      // Keep progress at full (big blobs)
+      // Keep blobs at full size
       progress = 1.0;
-      
-      // Fuzziness increases over time
       fuzziness = 0.0;
       
-      // The drawing area grows from the original circle to fill the screen
-      // Match the physics expansion time (5 seconds)
+      // Calculate expansion animation (0.0 to 1.0 over 5 seconds)
       let t_exp = constrain(beyondElapsed / 5000, 0, 1);
-      t_exp = t_exp * t_exp * (3 - 2 * t_exp); // Smoothstep
+      // "Smoothstep" formula makes the animation start and end gently
+      t_exp = t_exp * t_exp * (3 - 2 * t_exp);
 
+      // Expand the radius from original size to larger than screen
       renderRadius = lerp(this.radius, max(width, height) * 1.5, t_exp);
+
+      // Change the stroke color to white
+      currentStrokeColor = 255;
     }
 
-    // Draw outer background circle
-    // Draw it even if complete, expanding with the renderRadius
+    // Draw the outer ring
     noFill();
-    stroke(this.strokeColor);
+    stroke(currentStrokeColor);
     strokeWeight(2);
     circle(this.x, this.y, renderRadius * 2);
 
+    // Draw the blobs
     this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
     
-    // Draw the full-screen buffer aligned with the canvas
+    // Display the shader buffer on the main canvas
     imageMode(CENTER);
     image(this.g, width / 2, height / 2);
   }
 
+  /**
+   * renderMetaballs
+   * This function handles the physics update and shader rendering for the blobs.
+   */
   renderMetaballs(progress, globalAlpha = 1.0, fuzziness = 0.0, renderRadius = null) {
     const g = this.g;
-    // Only constrain if not in fuzzy/growth mode
     let p = progress;
-    if (fuzziness === 0) {
-        p = constrain(progress, 0, 1);
-    }
     
+    // If progress is zero, don't draw anything
     if (p <= 0 && fuzziness === 0) {
       g.clear();
       return;
@@ -158,19 +195,21 @@ class CircleTimer {
 
     const currentRadius = renderRadius !== null ? renderRadius : this.radius;
 
-    // Update metaball positions and pack uniforms
+    // --- Physics & Boundaries ---
     const data = [];
     const w = g.width;
     const h = g.height;
     
-    // Determine bounds for metaballs (Expanding logic)
-    // Default target: full screen
+    // Determine the "walls" that blobs bounce off of.
+    // Initially, they are trapped inside the timer circle.
+    // In the "Beyond" phase, these walls expand to the full screen.
+
     let targetMinX = 0;
     let targetMaxX = w;
     let targetMinY = 0;
     let targetMaxY = h;
 
-    // Initial state: restricted to timer radius
+    // The initial tight bounds around the timer
     const r = this.radius;
     let startMinX = this.x - r;
     let startMaxX = this.x + r;
@@ -179,60 +218,63 @@ class CircleTimer {
 
     let minX, maxX, minY, maxY;
 
-    // If active (or fuzziness logic holds), strict bounds
     if (!this.isComplete && fuzziness === 0) {
+        // Normal mode: strict bounds
         minX = startMinX;
         maxX = startMaxX;
         minY = startMinY;
         maxY = startMaxY;
     } else {
-        // Beyond phase: Interpolate bounds from circle to full screen over time
+        // Beyond phase: Interpolate bounds from circle to full screen over 5 seconds
         let elapsed = 0;
         if (this.completionTime) elapsed = millis() - this.completionTime;
 
-        // Expand over 5 seconds
+        // Calculate animation progress (0 to 1)
         let t = constrain(elapsed / 5000, 0, 1);
+        t = t * t * (3 - 2 * t); // Apply smoothing
 
-        // Smoothstep for nicer easing: t * t * (3 - 2 * t)
-        t = t * t * (3 - 2 * t);
-
+        // Interpolate (blend) between start bounds and full screen bounds
         minX = lerp(startMinX, targetMinX, t);
         maxX = lerp(startMaxX, targetMaxX, t);
         minY = lerp(startMinY, targetMinY, t);
         maxY = lerp(startMaxY, targetMaxY, t);
     }
 
+    // Loop through each blob to update its position
     for (let i = 0; i < this.metaballs.length; i++) {
       let mb = this.metaballs[i];
       
+      // Move the blob
       mb.pos.add(mb.vel);
 
-      // Debug: Log position
+      // Debug: Log position (Requested feature)
+      // Note: This prints a LOT to the console!
       console.log(`Metaball ${i} position:`, mb.pos.x, mb.pos.y);
 
-      // If complete (Beyond phase), gently push blobs away from the center if they are inside the initial radius
+      // --- Beyond Phase Drift ---
+      // When the timer ends, we gently push the blobs out of the center
+      // so they drift apart nicely as the walls expand.
       if (this.isComplete && this.completionTime) {
         const beyondElapsed = millis() - this.completionTime;
-        // Buffer time: ramp up force over 3 seconds
+        // "Ramp up" the force over 3 seconds so it's not jumpy
         const rampUp = constrain(beyondElapsed / 3000, 0, 1);
 
         if (rampUp > 0) {
             const distFromCenter = dist(mb.pos.x, mb.pos.y, this.x, this.y);
+            // If the blob is still near the center, push it away
             if (distFromCenter < this.radius) {
-                // Calculate vector from center to blob
                 let pushDir = p5.Vector.sub(mb.pos, createVector(this.x, this.y));
                 pushDir.normalize();
-                // Apply force scaled by rampUp
-                pushDir.mult(0.05 * rampUp);
+                pushDir.mult(0.05 * rampUp); // Apply the gentle force
                 mb.vel.add(pushDir);
             }
         }
       }
 
-      // Bounce off the calculated bounds
+      // Bounce off the calculated walls
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
           mb.vel.x *= -1;
-          // Constrain to ensure they don't get stuck outside if bounds shrink (though bounds only grow here)
+          // Keep it inside
           mb.pos.x = constrain(mb.pos.x, minX + mb.baseRadius, maxX - mb.baseRadius);
       }
       if (mb.pos.y < minY + mb.baseRadius || mb.pos.y > maxY - mb.baseRadius) {
@@ -240,16 +282,20 @@ class CircleTimer {
           mb.pos.y = constrain(mb.pos.y, minY + mb.baseRadius, maxY - mb.baseRadius);
       }
 
-      const r = mb.baseRadius * p;
-      data.push(mb.pos.x, mb.pos.y, r);
+      // Prepare data for the shader
+      const blobRadius = mb.baseRadius * p;
+      data.push(mb.pos.x, mb.pos.y, blobRadius);
     }
 
-    // Clear and render multiple overlapping layers for neon glow effect
+    // --- Rendering ---
+    // We draw multiple layers to create a "neon glow" effect.
     g.clear();
     g.blendMode(BLEND); 
     
     const time = millis() * 0.001; 
+
     for (let layer = 0; layer < this.neonLayers; layer++) {
+      // Vary color slightly per layer for a shimmering effect
       const colorVar = sin(time * 0.5 + layer * 0.7) * 25 + cos(time * 0.3 + layer) * 15;
       const currentAlpha = this.blobAlpha * globalAlpha;
       
@@ -260,7 +306,10 @@ class CircleTimer {
         currentAlpha
       ];
 
+      // Pass all data to the GPU shader
       g.shader(this.metaballShader);
+
+      // Flatten the color array for the shader
       const flatColors = [];
       for(let c of this.metaballColors) {
         flatColors.push(c[0]/255, c[1]/255, c[2]/255);
@@ -271,17 +320,20 @@ class CircleTimer {
       this.metaballShader.setUniform("metaballColors", flatColors);
       this.metaballShader.setUniform("uColor", layerColor);
       this.metaballShader.setUniform("uThreshold", 1.0);
-      // Use the actual position as the center, since the buffer is full screen
       this.metaballShader.setUniform("uCenter", [this.x, this.y]);
       this.metaballShader.setUniform("uRadius", currentRadius);
       this.metaballShader.setUniform("uFuzziness", fuzziness);
       
+      // Draw a rectangle covering the screen to run the shader on every pixel
       g.rectMode(CENTER);
       g.noStroke();
       g.rect(0, 0, w, h);
     }
   }
 
+  // --- Shader Code ---
+  // Shaders run on the graphics card and are very fast.
+  // This vertex shader just sets up the geometry (a simple flat rectangle).
   metaballVert() {
     return `
       attribute vec3 aPosition;
@@ -296,6 +348,7 @@ class CircleTimer {
     `;
   }
 
+  // This fragment shader calculates the color of every pixel.
   metaballFrag() {
     return `
       precision highp float;
@@ -309,72 +362,77 @@ class CircleTimer {
       uniform float uRadius;
       uniform float uFuzziness;
 
+      // Simple pseudo-random function for noise
       float random (vec2 st) {
           return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
       }
 
       void main() {
+        // Convert texture coordinates (0-1) to pixel coordinates
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
+        // --- Clipping Logic ---
+        // If we are NOT in the fuzzy/expansion mode, we only draw inside the circle.
         if (uFuzziness <= 0.0) {
           if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard;
+            discard; // Don't draw this pixel
           }
         }
 
+        // --- Metaball Calculation ---
+        // We sum up the "influence" of every blob at this pixel.
+        // Influence drops off with distance squared.
         float v = 0.0;
         vec3 accumColor = vec3(0.0);
         float totalWeight = 0.0;
         
         vec2 noisePos = vec2(x, y) * 0.05; 
-        float n = random(noisePos);
+        float n = random(noisePos); // Add some grain/texture
 
         for (int i = 0; i < ${this.metaballCount}; i++) {
           vec3 ball = metaballs[i];
           float dx = ball.x - x;
           float dy = ball.y - y;
-          float r = ball.z;
+          float r = ball.z; // Radius
+
+          // The magic formula for metaballs
           float influence = r * r / (dx * dx + dy * dy + 1e-5);
           v += influence;
           
+          // Blend colors based on influence
           accumColor += metaballColors[i] * influence;
           totalWeight += influence;
         }
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
+        // Threshold defines the "edge" of the blob
         float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
 
         if (uFuzziness > 0.0) {
-            // Fuzzy mode
-            // Map v to alpha smoothly
-            // As uFuzziness increases, we want to see lower v values (softer edges)
-            // When uFuzziness is 1.0, we might want visible alpha down to v ~ 0.1
-            
+            // Fuzzy mode logic (not currently used heavily, but allows for soft edges)
             float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
             float upperBound = threshold + (uFuzziness * 0.2); 
-            
             float alpha = smoothstep(lowerBound, upperBound, v);
-            
-            // Texture
             vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-            
             gl_FragColor = vec4(finalColor, alpha * uColor.a);
             
         } else {
-            // Normal mode
+            // Normal mode logic
             if (v >= threshold) {
+              // Calculate edge glow
               float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
               float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
               
+              // Smooth edges for anti-aliasing
               float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
               float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
+
               vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
               gl_FragColor = vec4(finalColor, finalAlpha);
             } else {
+              // Background (transparent)
               gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
             }
         }
