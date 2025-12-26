@@ -118,30 +118,19 @@ class CircleTimer {
     // "Beyond" logic: Grow and become fuzzy instead of shrinking
     if (this.isComplete) {
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
-      // "Slowly growing"
-      // Use the configured beyondDuration for the growth speed
+
+      // 't' goes from 0 to 1 over the 'Beyond' duration
       const growDuration = this.beyondDuration;
       const t = constrain(beyondElapsed / growDuration, 0, 1);
       
-      // Progress stays 1.0 (full size metaballs)
+      // Keep progress at full (big blobs)
       progress = 1.0;
       
-      // Fuzziness increases
-      fuzziness = t;
+      // Fuzziness increases over time
+      fuzziness = 0.0;
       
-      // Radius grows linearly or smoothly
-      let maxR = max(width, height);
-      renderRadius = lerp(this.radius, maxR, t);
-    }
-
-    // Render metaball-style blob into offscreen buffer, then draw it centered
-    if (this.isComplete) {
-        // Calculate growth scale for metaballs
-        // We want them to grow to fill the screen visually
-        let maxR = max(width, height); 
-        let growthRatio = maxR / (this.radius > 1 ? this.radius : 1);
-        // Animate scale from 1.0 to growthRatio over the duration (captured by fuzziness t)
-        progress = lerp(1.0, growthRatio, fuzziness);
+      // The drawing area grows from the original circle to fill the screen
+      renderRadius = max(width, height) * 2;
     }
 
     this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
