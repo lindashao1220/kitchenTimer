@@ -160,22 +160,43 @@ class CircleTimer {
     const w = g.width;
     const h = g.height;
     
-    // Determine bounds for metaballs
-    let minX = 0;
-    let maxX = w;
-    let minY = 0;
-    let maxY = h;
+    // Determine bounds for metaballs (Expanding logic)
+    // Default target: full screen
+    let targetMinX = 0;
+    let targetMaxX = w;
+    let targetMinY = 0;
+    let targetMaxY = h;
 
-    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
-    // This mimics the previous behavior where they bounced inside the small buffer
+    // Initial state: restricted to timer radius
+    const r = this.radius;
+    let startMinX = this.x - r;
+    let startMaxX = this.x + r;
+    let startMinY = this.y - r;
+    let startMaxY = this.y + r;
+
+    let minX, maxX, minY, maxY;
+
+    // If active (or fuzziness logic holds), strict bounds
     if (!this.isComplete && fuzziness === 0) {
-        // Use the current radius (or base radius) to define a bounding box around the center
-        // The previous code had a buffer of size radius*2, effectively constraining to radius.
-        const r = this.radius;
-        minX = this.x - r;
-        maxX = this.x + r;
-        minY = this.y - r;
-        maxY = this.y + r;
+        minX = startMinX;
+        maxX = startMaxX;
+        minY = startMinY;
+        maxY = startMaxY;
+    } else {
+        // Beyond phase: Interpolate bounds from circle to full screen over time
+        let elapsed = 0;
+        if (this.completionTime) elapsed = millis() - this.completionTime;
+
+        // Expand over 5 seconds
+        let t = constrain(elapsed / 5000, 0, 1);
+
+        // Smoothstep for nicer easing: t * t * (3 - 2 * t)
+        t = t * t * (3 - 2 * t);
+
+        minX = lerp(startMinX, targetMinX, t);
+        maxX = lerp(startMaxX, targetMaxX, t);
+        minY = lerp(startMinY, targetMinY, t);
+        maxY = lerp(startMaxY, targetMaxY, t);
     }
 
     for (let i = 0; i < this.metaballs.length; i++) {
