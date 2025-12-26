@@ -178,9 +178,13 @@ class CircleTimer {
         maxY = this.y + r;
     }
 
-    for (let mb of this.metaballs) {
+    for (let i = 0; i < this.metaballs.length; i++) {
+      let mb = this.metaballs[i];
       
       mb.pos.add(mb.vel);
+
+      // Debug: Log position
+      console.log(`Metaball ${i} position:`, mb.pos.x, mb.pos.y);
 
       // If complete (Beyond phase), gently push blobs away from the center if they are inside the initial radius
       if (this.isComplete && this.completionTime) {
@@ -200,7 +204,7 @@ class CircleTimer {
             }
         }
       }
-      
+
       // Bounce off the calculated bounds
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
           mb.vel.x *= -1;
