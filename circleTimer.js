@@ -183,14 +183,21 @@ class CircleTimer {
       mb.pos.add(mb.vel);
 
       // If complete (Beyond phase), gently push blobs away from the center if they are inside the initial radius
-      if (this.isComplete) {
-        const distFromCenter = dist(mb.pos.x, mb.pos.y, this.x, this.y);
-        if (distFromCenter < this.radius) {
-            // Calculate vector from center to blob
-            let pushDir = p5.Vector.sub(mb.pos, createVector(this.x, this.y));
-            pushDir.normalize();
-            pushDir.mult(0.05); // Small force to drift them out
-            mb.vel.add(pushDir);
+      if (this.isComplete && this.completionTime) {
+        const beyondElapsed = millis() - this.completionTime;
+        // Buffer time: ramp up force over 3 seconds
+        const rampUp = constrain(beyondElapsed / 3000, 0, 1);
+
+        if (rampUp > 0) {
+            const distFromCenter = dist(mb.pos.x, mb.pos.y, this.x, this.y);
+            if (distFromCenter < this.radius) {
+                // Calculate vector from center to blob
+                let pushDir = p5.Vector.sub(mb.pos, createVector(this.x, this.y));
+                pushDir.normalize();
+                // Apply force scaled by rampUp
+                pushDir.mult(0.05 * rampUp);
+                mb.vel.add(pushDir);
+            }
         }
       }
       
