@@ -72,14 +72,26 @@ function draw() {
       timer.update();
       timer.draw();
       
+      // -----------------------------------------------------------------------
+      // BEYOND TEXT DISPLAY
+      // -----------------------------------------------------------------------
+      // If the timer is finished (isComplete), we show how much time has passed
+      // in the "Beyond" phase.
       if (timer.isComplete && timer.completionTime) {
+         // Calculate elapsed milliseconds since it finished
          let elapsed = millis() - timer.completionTime;
+
+         // Convert to minutes and seconds
          let seconds = Math.floor(elapsed / 1000);
          let m = Math.floor(seconds / 60);
          let s = seconds % 60;
+
+         // Format as MM:SS (e.g., "01:05")
          let timeStr = nf(m, 2) + ':' + nf(s, 2);
          
-         // Ensure text is visible over bright blobs
+         // Draw the "Beyond" timer in the center of the screen
+         // We use a thick black stroke (outline) so the text is readable
+         // even when bright blobs are floating behind it.
          stroke(0);
          strokeWeight(4);
          strokeJoin(ROUND);
