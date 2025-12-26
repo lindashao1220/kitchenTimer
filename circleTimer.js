@@ -130,7 +130,12 @@ class CircleTimer {
       fuzziness = 0.0;
       
       // The drawing area grows from the original circle to fill the screen
-      renderRadius = max(width, height) * 2;
+      let maxR = max(width, height) * 1.5;
+      renderRadius = lerp(this.radius, maxR, t);
+
+      // Scale metaballs to grow and fill the screen
+      let growthRatio = maxR / (this.radius > 1 ? this.radius : 1);
+      progress = lerp(1.0, growthRatio, t);
     }
 
     this.renderMetaballs(progress, globalAlpha, fuzziness, renderRadius);
