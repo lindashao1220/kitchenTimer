@@ -149,8 +149,12 @@ class CircleTimer {
     if (this.isComplete) {
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
       
-      // Keep blobs at full size
-      progress = 1.0;
+      // Grow blobs over the beyond duration to eventually fill the screen
+      // 1.0 is normal size, 20.0 should be enough to fill the view
+      // The speed depends on the total beyond duration.
+      const growthProgress = constrain(beyondElapsed / this.beyondDuration, 0, 1);
+      progress = 1.0 + (growthProgress * 20.0);
+
       fuzziness = 0.0;
       
       // Calculate expansion animation (0.0 to 1.0 over 5 seconds)
