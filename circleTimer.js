@@ -115,21 +115,33 @@ class CircleTimer {
     let fuzziness = 0.0;
     let renderRadius = this.radius;
     
-    // "Beyond" logic: Grow and become fuzzy instead of shrinking
+    // -----------------------------------------------------------------------
+    // "BEYOND" PHASE LOGIC
+    // -----------------------------------------------------------------------
+    // Once the timer completes (isComplete is true), we enter the "Beyond" phase.
+    // Instead of stopping, the visual changes to represent expanding time.
     if (this.isComplete) {
+      // Calculate how much time has passed since the timer finished
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
       
-      // 't' goes from 0 to 1 over the 'Beyond' duration
+      // 'growDuration' is the total time for the "Beyond" expansion effect
       const growDuration = this.beyondDuration;
+
+      // 't' is a value from 0.0 to 1.0 representing our progress through the expansion
       const t = constrain(beyondElapsed / growDuration, 0, 1);
       
-      // Keep progress at full (big blobs)
+      // During "Beyond", we keep the blobs at their full size (progress = 1.0)
+      // rather than shrinking them like we did during the countdown.
       progress = 1.0;
       
-      // Fuzziness increases over time
+      // Fuzziness (0.0 to 1.0) controls how "soft" or "blurry" the edges look.
+      // Currently set to 0.0 to keep edges sharp, but could be increased with 't'
+      // if we wanted them to get blurrier as they expand.
       fuzziness = 0.0;
       
-      // The drawing area grows from the original circle to fill the screen
+      // 'renderRadius' defines the boundary where we draw the blobs.
+      // In the "Beyond" phase, we expand this boundary to be larger than the screen
+      // so the blobs can float away freely without being clipped by the original circle.
       renderRadius = max(width, height) * 2;
     }
 
@@ -166,17 +178,22 @@ class CircleTimer {
     let minY = 0;
     let maxY = h;
 
-    // If we are NOT in the "Beyond" expansion phase, constrain particles to the timer radius
-    // This mimics the previous behavior where they bounced inside the small buffer
+    // -----------------------------------------------------------------------
+    // BOUNDS LOGIC
+    // -----------------------------------------------------------------------
+    // If we are NOT in the "Beyond" expansion phase, we want the blobs to stay
+    // inside the timer circle.
     if (!this.isComplete && fuzziness === 0) {
-        // Use the current radius (or base radius) to define a bounding box around the center
-        // The previous code had a buffer of size radius*2, effectively constraining to radius.
+        // Calculate a box around the center of the timer.
+        // The blobs will bounce off these invisible walls.
         const r = this.radius;
         minX = this.x - r;
         maxX = this.x + r;
         minY = this.y - r;
         maxY = this.y + r;
     }
+    // Note: When 'this.isComplete' becomes true (Beyond phase), we skip the block above.
+    // This removes the invisible walls, allowing the blobs to drift across the entire screen.
 
     for (let mb of this.metaballs) {
       
@@ -270,8 +287,16 @@ class CircleTimer {
         float x = vTexCoord.x * uResolution.x;
         float y = vTexCoord.y * uResolution.y;
 
-        // Hard clipping at outer radius, but allow growth
-        // Disable clipping when in fuzzy "Beyond" mode to allow organic growth
+        // -----------------------------------------------------------------------
+        // CLIPPING LOGIC
+        // -----------------------------------------------------------------------
+        // Normally, we "clip" (cut off) pixels outside the timer's circle radius.
+        // We do this by checking the distance from the pixel (x,y) to the center.
+        // If it's too far, we 'discard' it (don't draw it).
+        //
+        // However, in the "Beyond" phase (when uFuzziness might be > 0 or logic changes),
+        // we might want to disable this clipping so blobs can go everywhere.
+        // Currently, we only clip if we are in "normal" sharp mode (uFuzziness <= 0.0).
         if (uFuzziness <= 0.0) {
           if (distance(vec2(x, y), uCenter) > uRadius) {
             discard;
@@ -299,20 +324,27 @@ class CircleTimer {
         
         vec3 blendedColor = accumColor / (totalWeight + 1e-5);
         
+        // Calculate the threshold for drawing. 'v' is the metaball strength at this pixel.
+        // We add some noise 'n' to make the edge slightly irregular (organic look).
         float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
 
+        // -----------------------------------------------------------------------
+        // FUZZY / BEYOND RENDERING
+        // -----------------------------------------------------------------------
         if (uFuzziness > 0.0) {
-            // Fuzzy mode
-            // Map v to alpha smoothly
-            // As uFuzziness increases, we want to see lower v values (softer edges)
-            // When uFuzziness is 1.0, we might want visible alpha down to v ~ 0.1
+            // If we are in "Fuzzy" mode (often used for Beyond transitions),
+            // we don't just say "pixel on" or "pixel off".
+            // Instead, we create a smooth gradient (alpha) at the edges.
             
+            // 'lowerBound' and 'upperBound' define the width of the soft edge.
             float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
             float upperBound = threshold + (uFuzziness * 0.2); 
             
+            // smoothstep calculates a value between 0 and 1 based on where 'v' falls
+            // between the bounds. This creates the soft blur effect.
             float alpha = smoothstep(lowerBound, upperBound, v);
             
-            // Texture
+            // Apply texture noise to the color
             vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
             
             gl_FragColor = vec4(finalColor, alpha * uColor.a);
