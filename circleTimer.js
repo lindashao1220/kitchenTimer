@@ -14,6 +14,113 @@ const METABALL_CONFIG = {
   transparency: 0.9
 };
 
+// Shader Code - Extracted to global functions for reuse
+function getMetaballVert() {
+  return `
+    attribute vec3 aPosition;
+    attribute vec2 aTexCoord;
+    varying vec2 vTexCoord;
+    void main() {
+      vTexCoord = aTexCoord;
+      vec4 positionVec4 = vec4(aPosition, 1.0);
+      positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+      gl_Position = positionVec4;
+    }
+  `;
+}
+
+function getMetaballFrag(metaballCount) {
+  return `
+    precision highp float;
+    varying vec2 vTexCoord;
+    uniform vec3 metaballs[${metaballCount}];
+    uniform vec3 metaballColors[${metaballCount}];
+    uniform vec2 uResolution;
+    uniform vec4 uColor;
+    uniform float uThreshold;
+    uniform vec2 uCenter;
+    uniform float uRadius;
+    uniform float uFuzziness;
+
+    // Simple pseudo-random function for noise
+    float random (vec2 st) {
+        return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
+    }
+
+    void main() {
+      // Convert texture coordinates (0-1) to pixel coordinates
+      float x = vTexCoord.x * uResolution.x;
+      float y = vTexCoord.y * uResolution.y;
+
+      // --- Clipping Logic ---
+      // If we are NOT in the fuzzy/expansion mode, we only draw inside the circle.
+      // uRadius < 0 means no clipping (full screen mode)
+      if (uFuzziness <= 0.0 && uRadius >= 0.0) {
+        if (distance(vec2(x, y), uCenter) > uRadius) {
+          discard; // Don't draw this pixel
+        }
+      }
+
+      // --- Metaball Calculation ---
+      // We sum up the "influence" of every blob at this pixel.
+      // Influence drops off with distance squared.
+      float v = 0.0;
+      vec3 accumColor = vec3(0.0);
+      float totalWeight = 0.0;
+
+      vec2 noisePos = vec2(x, y) * 0.05;
+      float n = random(noisePos); // Add some grain/texture
+
+      for (int i = 0; i < ${metaballCount}; i++) {
+        vec3 ball = metaballs[i];
+        float dx = ball.x - x;
+        float dy = ball.y - y;
+        float r = ball.z; // Radius
+
+        // The magic formula for metaballs
+        float influence = r * r / (dx * dx + dy * dy + 1e-5);
+        v += influence;
+
+        // Blend colors based on influence
+        accumColor += metaballColors[i] * influence;
+        totalWeight += influence;
+      }
+
+      vec3 blendedColor = accumColor / (totalWeight + 1e-5);
+
+      // Threshold defines the "edge" of the blob
+      float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+
+      if (uFuzziness > 0.0) {
+          // Fuzzy mode logic (not currently used heavily, but allows for soft edges)
+          float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
+          float upperBound = threshold + (uFuzziness * 0.2);
+          float alpha = smoothstep(lowerBound, upperBound, v);
+          vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+          gl_FragColor = vec4(finalColor, alpha * uColor.a);
+
+      } else {
+          // Normal mode logic
+          if (v >= threshold) {
+            // Calculate edge glow
+            float distFromCenter = distance(vec2(x, y), uCenter) / (uRadius > 0.0 ? uRadius : max(uResolution.x, uResolution.y));
+            float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
+
+            // Smooth edges for anti-aliasing
+            float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
+            float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
+
+            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+            gl_FragColor = vec4(finalColor, finalAlpha);
+          } else {
+            // Background (transparent)
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+          }
+      }
+    }
+  `;
+}
+
 /**
  * CircleTimer Class
  * 
@@ -157,8 +264,8 @@ class CircleTimer {
       
       fuzziness = 0.0;
       
-      // Calculate expansion animation (0.0 to 1.0 over 5 seconds)
-      let t_exp = constrain(beyondElapsed / 5000, 0, 1);
+      // Calculate expansion animation (0.0 to 1.0 over 20 seconds) - SLOWER as requested
+      let t_exp = constrain(beyondElapsed / 20000, 0, 1);
       // "Smoothstep" formula makes the animation start and end gently
       t_exp = t_exp * t_exp * (3 - 2 * t_exp); 
       
@@ -229,12 +336,12 @@ class CircleTimer {
         minY = startMinY;
         maxY = startMaxY;
     } else {
-        // Beyond phase: Interpolate bounds from circle to full screen over 5 seconds
+        // Beyond phase: Interpolate bounds from circle to full screen over 20 seconds
         let elapsed = 0;
         if (this.completionTime) elapsed = millis() - this.completionTime;
         
         // Calculate animation progress (0 to 1)
-        let t = constrain(elapsed / 5000, 0, 1); 
+        let t = constrain(elapsed / 20000, 0, 1);
         t = t * t * (3 - 2 * t); // Apply smoothing
 
         // Interpolate (blend) between start bounds and full screen bounds
@@ -337,110 +444,12 @@ class CircleTimer {
 
   // --- Shader Code ---
   // Shaders run on the graphics card and are very fast.
-  // This vertex shader just sets up the geometry (a simple flat rectangle).
   metaballVert() {
-    return `
-      attribute vec3 aPosition;
-      attribute vec2 aTexCoord;
-      varying vec2 vTexCoord;
-      void main() {
-        vTexCoord = aTexCoord;
-        vec4 positionVec4 = vec4(aPosition, 1.0);
-        positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
-        gl_Position = positionVec4;
-      }
-    `;
+    return getMetaballVert();
   }
 
   // This fragment shader calculates the color of every pixel.
   metaballFrag() {
-    return `
-      precision highp float;
-      varying vec2 vTexCoord;
-      uniform vec3 metaballs[${this.metaballCount}];
-      uniform vec3 metaballColors[${this.metaballCount}];
-      uniform vec2 uResolution;
-      uniform vec4 uColor;
-      uniform float uThreshold;
-      uniform vec2 uCenter;
-      uniform float uRadius;
-      uniform float uFuzziness;
-
-      // Simple pseudo-random function for noise
-      float random (vec2 st) {
-          return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
-      }
-
-      void main() {
-        // Convert texture coordinates (0-1) to pixel coordinates
-        float x = vTexCoord.x * uResolution.x;
-        float y = vTexCoord.y * uResolution.y;
-
-        // --- Clipping Logic ---
-        // If we are NOT in the fuzzy/expansion mode, we only draw inside the circle.
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard; // Don't draw this pixel
-          }
-        }
-
-        // --- Metaball Calculation ---
-        // We sum up the "influence" of every blob at this pixel.
-        // Influence drops off with distance squared.
-        float v = 0.0;
-        vec3 accumColor = vec3(0.0);
-        float totalWeight = 0.0;
-        
-        vec2 noisePos = vec2(x, y) * 0.05; 
-        float n = random(noisePos); // Add some grain/texture
-
-        for (int i = 0; i < ${this.metaballCount}; i++) {
-          vec3 ball = metaballs[i];
-          float dx = ball.x - x;
-          float dy = ball.y - y;
-          float r = ball.z; // Radius
-          
-          // The magic formula for metaballs
-          float influence = r * r / (dx * dx + dy * dy + 1e-5);
-          v += influence;
-          
-          // Blend colors based on influence
-          accumColor += metaballColors[i] * influence;
-          totalWeight += influence;
-        }
-        
-        vec3 blendedColor = accumColor / (totalWeight + 1e-5);
-        
-        // Threshold defines the "edge" of the blob
-        float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
-
-        if (uFuzziness > 0.0) {
-            // Fuzzy mode logic (not currently used heavily, but allows for soft edges)
-            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.2); 
-            float alpha = smoothstep(lowerBound, upperBound, v);
-            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-            gl_FragColor = vec4(finalColor, alpha * uColor.a);
-            
-        } else {
-            // Normal mode logic
-            if (v >= threshold) {
-              // Calculate edge glow
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
-              
-              // Smooth edges for anti-aliasing
-              float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
-              float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
-              
-              vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-              gl_FragColor = vec4(finalColor, finalAlpha);
-            } else {
-              // Background (transparent)
-              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-            }
-        }
-      }
-    `;
+    return getMetaballFrag(this.metaballCount);
   }
 }
