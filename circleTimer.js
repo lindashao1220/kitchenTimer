@@ -149,11 +149,25 @@ class CircleTimer {
     if (this.isComplete) {
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
       
-      // Grow blobs over the beyond duration to eventually fill the screen
-      // 1.0 is normal size, 20.0 should be enough to fill the view
-      // The speed depends on the total beyond duration.
-      const growthProgress = constrain(beyondElapsed / this.beyondDuration, 0, 1);
-      progress = 1.0 + (growthProgress * 20.0);
+      // Grow blobs to eventually fill the entire white space (screen).
+      // The growth takes approximately 10 seconds and adjusts proportionally based on the
+      // size of the remaining space (exponential approach).
+
+      // 1. Calculate target scale needed to cover the screen
+      const screenMax = max(width, height);
+      // Ensure we don't divide by zero if radius is tiny
+      const safeRadius = this.radius > 1 ? this.radius : 1;
+      // Target radius should cover the screen (using 1.2x max dimension to be safe)
+      const targetScale = (screenMax * 1.2) / safeRadius;
+
+      // 2. Exponential growth formula:
+      // Current = Start + (Target - Start) * (1 - e^(-t / timeConstant))
+      // To reach ~98% completion in 10 seconds, timeConstant should be 2500ms.
+      // (1 - e^(-10000/2500)) = (1 - e^-4) ≈ 0.981
+      const timeConstant = 2500;
+      const exponentialFactor = 1.0 - Math.exp(-beyondElapsed / timeConstant);
+
+      progress = 1.0 + (targetScale - 1.0) * exponentialFactor;
       
       fuzziness = 0.0;
       
