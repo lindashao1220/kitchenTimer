@@ -21,7 +21,7 @@ let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
 
 // Landing Page Globals
-let landingBlobs = [];
+let landingVisuals = null;
 let lastInteractionTime = 0;
 let isTransitioning = false;
 let transitionStartTime = 0;
@@ -51,10 +51,8 @@ function setup() {
   let maxRadius = min(width, height) / 2;
   currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
 
-  // Initialize Landing Blobs
-  for (let i = 0; i < 5; i++) {
-    landingBlobs.push(new LandingBlob());
-  }
+  // Initialize Landing Visuals (Metaballs)
+  landingVisuals = new LandingVisuals();
   lastInteractionTime = millis();
 }
 
@@ -122,11 +120,10 @@ function draw() {
 }
 
 function drawLanding() {
-  // Draw floating blobs
-  noStroke();
-  for (let blob of landingBlobs) {
-    blob.update();
-    blob.display();
+  // Draw floating metaballs
+  if (landingVisuals) {
+    landingVisuals.update();
+    landingVisuals.draw();
   }
 
   // Draw Text
@@ -174,6 +171,13 @@ function windowResized() {
     timer.y = height / 2;
   }
   
+  if (landingVisuals) {
+      // Recreate graphics or just rely on image scaling?
+      // Since it's WEBGL, resizing is tricky without recreation.
+      // Easiest to just recreate the visual manager or its buffer.
+      landingVisuals = new LandingVisuals();
+  }
+
   // If we exited full screen (and not just starting up), go back to landing
   if (!fullscreen() && mode !== 'LANDING') {
     mode = 'LANDING';
@@ -316,41 +320,5 @@ function gotData() {
       }
       lastSensor2 = sensorValue2;
     }
-  }
-}
-
-// --- Helper Classes ---
-
-class LandingBlob {
-  constructor() {
-    this.x = random(width);
-    this.y = random(height);
-    this.size = random(100, 300);
-    this.xSpeed = random(-0.5, 0.5);
-    this.ySpeed = random(-0.5, 0.5);
-    this.color = [random(100, 200), random(150, 255), random(200, 255), 50]; // Soft cyan/blueish
-    this.noiseOffset = random(1000);
-  }
-
-  update() {
-    this.x += this.xSpeed;
-    this.y += this.ySpeed;
-
-    // Wrap around screen
-    if (this.x < -this.size) this.x = width + this.size;
-    if (this.x > width + this.size) this.x = -this.size;
-    if (this.y < -this.size) this.y = height + this.size;
-    if (this.y > height + this.size) this.y = -this.size;
-
-    // Subtle size pulse
-    this.noiseOffset += 0.01;
-    let pulse = map(noise(this.noiseOffset), 0, 1, 0.8, 1.2);
-    this.currentSize = this.size * pulse;
-  }
-
-  display() {
-    fill(this.color);
-    noStroke();
-    circle(this.x, this.y, this.currentSize);
   }
 }

@@ -14,6 +14,113 @@ const METABALL_CONFIG = {
   transparency: 0.9
 };
 
+// --- Shared Shader Code ---
+
+function getMetaballVert() {
+  return `
+    attribute vec3 aPosition;
+    attribute vec2 aTexCoord;
+    varying vec2 vTexCoord;
+    void main() {
+      vTexCoord = aTexCoord;
+      vec4 positionVec4 = vec4(aPosition, 1.0);
+      positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+      gl_Position = positionVec4;
+    }
+  `;
+}
+
+function getMetaballFrag(count) {
+  return `
+    precision highp float;
+    varying vec2 vTexCoord;
+    uniform vec3 metaballs[${count}];
+    uniform vec3 metaballColors[${count}];
+    uniform vec2 uResolution;
+    uniform vec4 uColor;
+    uniform float uThreshold;
+    uniform vec2 uCenter;
+    uniform float uRadius;
+    uniform float uFuzziness;
+
+    // Simple pseudo-random function for noise
+    float random (vec2 st) {
+        return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
+    }
+
+    void main() {
+      // Convert texture coordinates (0-1) to pixel coordinates
+      float x = vTexCoord.x * uResolution.x;
+      float y = vTexCoord.y * uResolution.y;
+
+      // --- Clipping Logic ---
+      // If we are NOT in the fuzzy/expansion mode, we only draw inside the circle.
+      if (uFuzziness <= 0.0) {
+        if (distance(vec2(x, y), uCenter) > uRadius) {
+          discard; // Don't draw this pixel
+        }
+      }
+
+      // --- Metaball Calculation ---
+      // We sum up the "influence" of every blob at this pixel.
+      // Influence drops off with distance squared.
+      float v = 0.0;
+      vec3 accumColor = vec3(0.0);
+      float totalWeight = 0.0;
+
+      vec2 noisePos = vec2(x, y) * 0.05;
+      float n = random(noisePos); // Add some grain/texture
+
+      for (int i = 0; i < ${count}; i++) {
+        vec3 ball = metaballs[i];
+        float dx = ball.x - x;
+        float dy = ball.y - y;
+        float r = ball.z; // Radius
+
+        // The magic formula for metaballs
+        float influence = r * r / (dx * dx + dy * dy + 1e-5);
+        v += influence;
+
+        // Blend colors based on influence
+        accumColor += metaballColors[i] * influence;
+        totalWeight += influence;
+      }
+
+      vec3 blendedColor = accumColor / (totalWeight + 1e-5);
+
+      // Threshold defines the "edge" of the blob
+      float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+
+      if (uFuzziness > 0.0) {
+          // Fuzzy mode logic (not currently used heavily, but allows for soft edges)
+          float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
+          float upperBound = threshold + (uFuzziness * 0.2);
+          float alpha = smoothstep(lowerBound, upperBound, v);
+          vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+          gl_FragColor = vec4(finalColor, alpha * uColor.a);
+
+      } else {
+          // Normal mode logic
+          if (v >= threshold) {
+            // Calculate edge glow
+            float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
+            float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
+
+            // Smooth edges for anti-aliasing
+            float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
+            float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
+
+            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
+            gl_FragColor = vec4(finalColor, finalAlpha);
+          } else {
+            // Background (transparent)
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+          }
+      }
+    }
+  `;
+}
+
 /**
  * CircleTimer Class
  * 
@@ -62,8 +169,8 @@ class CircleTimer {
     this.g.noStroke();
     this.g.pixelDensity(1);
     
-    // Load the shader programs (defined at the bottom of this file)
-    this.metaballShader = this.g.createShader(this.metaballVert(), this.metaballFrag());
+    // Load the shader programs
+    this.metaballShader = this.g.createShader(getMetaballVert(), getMetaballFrag(this.metaballCount));
     this.g.shader(this.metaballShader);
     
     this.metaballs = [];
@@ -141,10 +248,6 @@ class CircleTimer {
     let currentStrokeColor = this.strokeColor;
     
     // --- Beyond Phase Logic ---
-    // If the timer is complete, we enter the "Beyond" phase where:
-    // 1. The blobs stop shrinking and stay big.
-    // 2. The boundary circle expands to fill the screen.
-    // 3. The outline fades to white.
     
     if (this.isComplete) {
       const beyondElapsed = this.completionTime ? millis() - this.completionTime : 0;
@@ -251,25 +354,20 @@ class CircleTimer {
       // Move the blob
       mb.pos.add(mb.vel);
       
-      // Debug: Log position (Requested feature)
-      // Note: This prints a LOT to the console!
+      // Debug: Log position
       console.log(`Metaball ${i} position:`, mb.pos.x, mb.pos.y);
 
       // --- Beyond Phase Drift ---
-      // When the timer ends, we gently push the blobs out of the center
-      // so they drift apart nicely as the walls expand.
       if (this.isComplete && this.completionTime) {
         const beyondElapsed = millis() - this.completionTime;
-        // "Ramp up" the force over 3 seconds so it's not jumpy
         const rampUp = constrain(beyondElapsed / 3000, 0, 1);
         
         if (rampUp > 0) {
             const distFromCenter = dist(mb.pos.x, mb.pos.y, this.x, this.y);
-            // If the blob is still near the center, push it away
             if (distFromCenter < this.radius) {
                 let pushDir = p5.Vector.sub(mb.pos, createVector(this.x, this.y));
                 pushDir.normalize();
-                pushDir.mult(0.05 * rampUp); // Apply the gentle force
+                pushDir.mult(0.05 * rampUp);
                 mb.vel.add(pushDir);
             }
         }
@@ -278,7 +376,6 @@ class CircleTimer {
       // Bounce off the calculated walls
       if (mb.pos.x < minX + mb.baseRadius || mb.pos.x > maxX - mb.baseRadius) {
           mb.vel.x *= -1;
-          // Keep it inside
           mb.pos.x = constrain(mb.pos.x, minX + mb.baseRadius, maxX - mb.baseRadius);
       }
       if (mb.pos.y < minY + mb.baseRadius || mb.pos.y > maxY - mb.baseRadius) {
@@ -292,14 +389,12 @@ class CircleTimer {
     }
 
     // --- Rendering ---
-    // We draw multiple layers to create a "neon glow" effect.
     g.clear();
     g.blendMode(BLEND); 
     
     const time = millis() * 0.001; 
     
     for (let layer = 0; layer < this.neonLayers; layer++) {
-      // Vary color slightly per layer for a shimmering effect
       const colorVar = sin(time * 0.5 + layer * 0.7) * 25 + cos(time * 0.3 + layer) * 15;
       const currentAlpha = this.blobAlpha * globalAlpha;
       
@@ -310,10 +405,8 @@ class CircleTimer {
         currentAlpha
       ];
 
-      // Pass all data to the GPU shader
       g.shader(this.metaballShader);
       
-      // Flatten the color array for the shader
       const flatColors = [];
       for(let c of this.metaballColors) {
         flatColors.push(c[0]/255, c[1]/255, c[2]/255);
@@ -328,119 +421,114 @@ class CircleTimer {
       this.metaballShader.setUniform("uRadius", currentRadius);
       this.metaballShader.setUniform("uFuzziness", fuzziness);
       
-      // Draw a rectangle covering the screen to run the shader on every pixel
       g.rectMode(CENTER);
       g.noStroke();
       g.rect(0, 0, w, h);
     }
   }
+}
 
-  // --- Shader Code ---
-  // Shaders run on the graphics card and are very fast.
-  // This vertex shader just sets up the geometry (a simple flat rectangle).
-  metaballVert() {
-    return `
-      attribute vec3 aPosition;
-      attribute vec2 aTexCoord;
-      varying vec2 vTexCoord;
-      void main() {
-        vTexCoord = aTexCoord;
-        vec4 positionVec4 = vec4(aPosition, 1.0);
-        positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
-        gl_Position = positionVec4;
-      }
-    `;
+/**
+ * LandingVisuals Class
+ *
+ * Handles the floating blobs for the landing page using the shared metaball shader.
+ */
+class LandingVisuals {
+  constructor() {
+    this.metaballCount = 6;
+
+    this.g = createGraphics(width, height, WEBGL);
+    this.g.noStroke();
+    this.g.pixelDensity(1);
+
+    this.metaballShader = this.g.createShader(getMetaballVert(), getMetaballFrag(this.metaballCount));
+    this.g.shader(this.metaballShader);
+
+    this.blobs = [];
+    this.blobColors = [];
+
+    const configColors = METABALL_CONFIG.colors;
+
+    // Initialize floating blobs
+    for (let i = 0; i < this.metaballCount; i++) {
+      // Blobs should be relatively large but floaty
+      const size = random(80, 150);
+
+      this.blobs.push({
+        pos: createVector(random(width), random(height)),
+        vel: p5.Vector.random2D().mult(random(0.2, 0.5)), // Slow movement
+        radius: size
+      });
+
+      const colorIndex = i % configColors.length;
+      const c = configColors[colorIndex];
+      this.blobColors.push([c[0], c[1], c[2]]);
+    }
+
+    this.neonLayers = 3; // Fewer layers for lighter look
   }
 
-  // This fragment shader calculates the color of every pixel.
-  metaballFrag() {
-    return `
-      precision highp float;
-      varying vec2 vTexCoord;
-      uniform vec3 metaballs[${this.metaballCount}];
-      uniform vec3 metaballColors[${this.metaballCount}];
-      uniform vec2 uResolution;
-      uniform vec4 uColor;
-      uniform float uThreshold;
-      uniform vec2 uCenter;
-      uniform float uRadius;
-      uniform float uFuzziness;
+  update() {
+    // Update physics
+    for (let b of this.blobs) {
+      b.pos.add(b.vel);
 
-      // Simple pseudo-random function for noise
-      float random (vec2 st) {
-          return fract(sin(dot(st.xy, vec2(12.9898,78.233)))*43758.5453123);
-      }
+      // Screen wrapping
+      if (b.pos.x < -b.radius) b.pos.x = width + b.radius;
+      if (b.pos.x > width + b.radius) b.pos.x = -b.radius;
+      if (b.pos.y < -b.radius) b.pos.y = height + b.radius;
+      if (b.pos.y > height + b.radius) b.pos.y = -b.radius;
+    }
+  }
 
-      void main() {
-        // Convert texture coordinates (0-1) to pixel coordinates
-        float x = vTexCoord.x * uResolution.x;
-        float y = vTexCoord.y * uResolution.y;
+  draw() {
+    const g = this.g;
+    g.clear();
+    g.blendMode(BLEND);
 
-        // --- Clipping Logic ---
-        // If we are NOT in the fuzzy/expansion mode, we only draw inside the circle.
-        if (uFuzziness <= 0.0) {
-          if (distance(vec2(x, y), uCenter) > uRadius) {
-            discard; // Don't draw this pixel
-          }
-        }
+    const time = millis() * 0.001;
+    const w = g.width;
+    const h = g.height;
 
-        // --- Metaball Calculation ---
-        // We sum up the "influence" of every blob at this pixel.
-        // Influence drops off with distance squared.
-        float v = 0.0;
-        vec3 accumColor = vec3(0.0);
-        float totalWeight = 0.0;
-        
-        vec2 noisePos = vec2(x, y) * 0.05; 
-        float n = random(noisePos); // Add some grain/texture
+    const data = [];
+    for (let b of this.blobs) {
+       // Add subtle pulsing
+       let pulse = 1.0 + sin(time + b.pos.x * 0.01) * 0.1;
+       data.push(b.pos.x, b.pos.y, b.radius * pulse);
+    }
 
-        for (int i = 0; i < ${this.metaballCount}; i++) {
-          vec3 ball = metaballs[i];
-          float dx = ball.x - x;
-          float dy = ball.y - y;
-          float r = ball.z; // Radius
-          
-          // The magic formula for metaballs
-          float influence = r * r / (dx * dx + dy * dy + 1e-5);
-          v += influence;
-          
-          // Blend colors based on influence
-          accumColor += metaballColors[i] * influence;
-          totalWeight += influence;
-        }
-        
-        vec3 blendedColor = accumColor / (totalWeight + 1e-5);
-        
-        // Threshold defines the "edge" of the blob
-        float threshold = uThreshold * 0.8 + (n - 0.5) * 0.1;
+    const flatColors = [];
+    for(let c of this.blobColors) {
+      flatColors.push(c[0]/255, c[1]/255, c[2]/255);
+    }
 
-        if (uFuzziness > 0.0) {
-            // Fuzzy mode logic (not currently used heavily, but allows for soft edges)
-            float lowerBound = threshold * (1.0 - uFuzziness * 0.95);
-            float upperBound = threshold + (uFuzziness * 0.2); 
-            float alpha = smoothstep(lowerBound, upperBound, v);
-            vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-            gl_FragColor = vec4(finalColor, alpha * uColor.a);
-            
-        } else {
-            // Normal mode logic
-            if (v >= threshold) {
-              // Calculate edge glow
-              float distFromCenter = distance(vec2(x, y), uCenter) / uRadius;
-              float edgeGlow = 1.0 - smoothstep(0.7, 1.0, distFromCenter);
-              
-              // Smooth edges for anti-aliasing
-              float alphaStrength = smoothstep(threshold, threshold + 0.5, v);
-              float finalAlpha = uColor.a * alphaStrength * (0.6 + 0.4 * edgeGlow);
-              
-              vec3 finalColor = blendedColor * (0.95 + 0.1 * n);
-              gl_FragColor = vec4(finalColor, finalAlpha);
-            } else {
-              // Background (transparent)
-              gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-            }
-        }
-      }
-    `;
+    // Draw layers
+    for (let layer = 0; layer < this.neonLayers; layer++) {
+       // Use a lighter, more transparent look for landing
+       // Base color whiteish/bluish
+       let alpha = 0.6;
+
+       let layerColor = [0.9, 0.95, 1.0, alpha]; // Very light
+
+       g.shader(this.metaballShader);
+
+       this.metaballShader.setUniform("uResolution", [w, h]);
+       this.metaballShader.setUniform("metaballs", data);
+       this.metaballShader.setUniform("metaballColors", flatColors);
+       this.metaballShader.setUniform("uColor", layerColor);
+       this.metaballShader.setUniform("uThreshold", 0.6); // Softer threshold
+       // Hack to bypass clipping: set center to middle and radius to massive value
+       this.metaballShader.setUniform("uCenter", [width/2, height/2]);
+       this.metaballShader.setUniform("uRadius", max(width, height) * 2);
+       this.metaballShader.setUniform("uFuzziness", 0.5); // Soft fuzzy edges
+
+       g.rectMode(CENTER);
+       g.noStroke();
+       g.rect(0, 0, w, h);
+    }
+
+    // Draw to main canvas
+    imageMode(CENTER);
+    image(g, width/2, height/2);
   }
 }
