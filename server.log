@@ -1,0 +1,14 @@
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET /style.css HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET /libs/p5.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET /script.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET /landingBlob.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET /libs/p5.dom.min.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:14:30] "GET /circleTimer.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET /landingBlob.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET /script.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET /style.css HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET /circleTimer.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET /libs/p5.dom.min.js HTTP/1.1" 200 -
+127.0.0.1 - - [08/Jan/2026 18:16:28] "GET /libs/p5.js HTTP/1.1" 200 -
