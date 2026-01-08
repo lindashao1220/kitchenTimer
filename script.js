@@ -6,7 +6,7 @@ let mode = 'LANDING'; // 'LANDING', 'INSTRUCTIONS', 'SETUP', or 'ACTIVE'
 
 // Timer settings
 let durationInput = 5; // The actual value in seconds
-let beyondInput = 2; // Beyond duration in minutes
+let beyondInput = 26; // Beyond duration in minutes
 let lastSensorValue1 = -1; // To track sensor changes
 
 // Smooth transition for setup circle
@@ -209,7 +209,7 @@ function drawSetup() {
   text("Beyond: " + beyondInput + " min", width / 2, height / 2 + 50);
 
   textSize(16);
-  text("Keys: 1/2 (Duration), 3/4 (Beyond), SPACE (Start)", width / 2, height / 2 + maxRadius + 80);
+  text("Keys: 1/2 (Duration), SPACE (Start)", width / 2, height / 2 + maxRadius + 80);
 }
 
 
@@ -236,12 +236,6 @@ function keyPressed() {
     } else if (key === '2') {
       if (durationInput > 1) {
         durationInput--;
-      }
-    } else if (key === '3') {
-      beyondInput++;
-    } else if (key === '4') {
-      if (beyondInput > 1) {
-        beyondInput--;
       }
     } else if (key === ' ') {
       startNewTimer();
