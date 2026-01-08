@@ -2,7 +2,7 @@
 //https://editor.p5js.org/Sophi333/sketches/2f2tUOTEB
 
 let timer = null;
-let mode = 'LANDING'; // 'LANDING', 'SETUP', or 'ACTIVE'
+let mode = 'LANDING'; // 'LANDING', 'INSTRUCTIONS', 'SETUP', or 'ACTIVE'
 
 // Timer settings
 let durationInput = 5; // The actual value in seconds
@@ -11,6 +11,14 @@ let lastSensorValue1 = -1; // To track sensor changes
 
 // Smooth transition for setup circle
 let currentDisplayRadius = 0;
+
+// Instructions Mode
+let landingBlobs = [];
+let lastInteractionTime = 0;
+let isTransitioning = false;
+let transitionStartTime = 0;
+const INSTRUCTIONS_IDLE_TIME = 5000; // 5 seconds
+const TRANSITION_DURATION = 1500; // 1.5 seconds for the wipe
 
 // Serial communication globals
 let serial;
@@ -24,6 +32,13 @@ function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
   background(255);
+
+  // Initialize landing blobs
+  for (let i = 0; i < 5; i++) {
+    // Random positions, nice pastel colors
+    let c = [random(200, 255), random(200, 255), random(200, 255)];
+    landingBlobs.push(new LandingBlob(random(width), random(height), random(50, 150), c));
+  }
 
   // Initialize serial connection
   try {
@@ -65,6 +80,44 @@ function draw() {
   
   if (mode === 'LANDING') {
     drawLanding();
+  } else if (mode === 'INSTRUCTIONS') {
+    if (isTransitioning) {
+       // Draw Setup first (the "revealed" content)
+       drawSetup();
+       
+       // Then draw the Instructions "curtain" sliding up
+       let elapsed = millis() - transitionStartTime;
+       let t = constrain(elapsed / TRANSITION_DURATION, 0, 1);
+       t = t * t * (3 - 2 * t);
+       let yOffset = -height * t;
+       
+       push();
+       translate(0, yOffset);
+       
+       // The curtain needs to be opaque
+       fill(255);
+       noStroke();
+       rectMode(CORNER);
+       rect(0, 0, width, height);
+       
+       // Draw blobs and text on the curtain
+       drawInstructionsContent();
+       
+       pop();
+       
+       if (t >= 1) {
+          isTransitioning = false;
+          mode = 'SETUP';
+       }
+    } else {
+       // Normal instructions mode
+       // Check idle
+       if (millis() - lastInteractionTime > INSTRUCTIONS_IDLE_TIME) {
+          isTransitioning = true;
+          transitionStartTime = millis();
+       }
+       drawInstructionsContent();
+    }
   } else if (mode === 'SETUP') {
     drawSetup();
   } else if (mode === 'ACTIVE') {
@@ -93,6 +146,7 @@ function draw() {
 
   // Show incoming sensor values
   fill(100);
+  noStroke();
   textSize(12);
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
@@ -102,7 +156,21 @@ function draw() {
 function drawLanding() {
   fill(0);
   textSize(32);
+  textAlign(CENTER, CENTER);
   text("Press 's' to enter Full Screen", width / 2, height / 2);
+}
+
+function drawInstructionsContent() {
+    for (let b of landingBlobs) {
+        b.update();
+        b.draw();
+    }
+    fill(50);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(24);
+    textLeading(36);
+    text("Turn the knob to add or reduce time.\nPress the button to start.", width / 2, height / 2);
 }
 
 function windowResized() {
@@ -112,7 +180,7 @@ function windowResized() {
     timer.y = height / 2;
   }
   
-  // If we exited full screen (and not just starting up), go back to landing
+  // If we exited full screen, go back to landing
   if (!fullscreen() && mode !== 'LANDING') {
     mode = 'LANDING';
   }
@@ -124,7 +192,6 @@ function drawSetup() {
   let targetRadius = map(durationInput, 0, 60, 0, maxRadius);
   
   // Smoothly interpolate currentDisplayRadius towards targetRadius
-  // lerp factor 0.1 gives a nice slide
   currentDisplayRadius = lerp(currentDisplayRadius, targetRadius, 0.1);
   
   // Draw preview circle using smoothed radius
@@ -153,26 +220,29 @@ function keyPressed() {
   if (mode === 'LANDING') {
     if (key === 's' || key === 'S') {
       fullscreen(true);
-      mode = 'SETUP';
-      // Reset radius when entering setup to ensure it starts from correct size (or animate from 0?)
-      // Let's keep it continuous or reset to current duration
-      let maxRadius = min(width, height) / 2;
-      currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
+      mode = 'INSTRUCTIONS';
+      lastInteractionTime = millis();
+      // Initialize blobs if needed, or they are already there
     }
+  } else if (mode === 'INSTRUCTIONS') {
+      // Any key press resets idle
+      lastInteractionTime = millis();
+      
+      // If user presses keys that would be useful in Setup, maybe we just go to Setup?
+      if (['1', '2', '3', '4', ' '].includes(key)) {
+          mode = 'SETUP';
+      }
+      
   } else if (mode === 'SETUP') {
     if (key === '1') {
-      // Increase duration
       durationInput++;
     } else if (key === '2') {
-      // Decrease duration
       if (durationInput > 1) {
         durationInput--;
       }
     } else if (key === '3') {
-      // Increase beyond duration
       beyondInput++;
     } else if (key === '4') {
-      // Decrease beyond duration
       if (beyondInput > 1) {
         beyondInput--;
       }
@@ -180,7 +250,6 @@ function keyPressed() {
       startNewTimer();
     }
   } else if (mode === 'ACTIVE') {
-    // Optional: SPACE to reset?
     if (key === ' ') {
       mode = 'SETUP';
       if (timer) timer.reset();
@@ -190,7 +259,6 @@ function keyPressed() {
 
 // ------------------------------------------------------------------
 
-// Called when a list of serial ports is returned
 function gotList(thelist) {
   console.log("Available Serial Ports:");
   for (let i = 0; i < thelist.length; i++) {
@@ -198,26 +266,46 @@ function gotList(thelist) {
   }
 }
 
-// Called when new data arrives from the serial port
 function gotData() {
-  const currentString = serial.readLine(); // Read the entire incoming line
-  trim(currentString); // Remove leading/trailing whitespace
+  const currentString = serial.readLine(); 
+  trim(currentString); 
 
-  // Only proceed if the string is not empty
   if (!currentString) return;
 
-  // Check if the data contains a comma, indicating a pair of values
   if (currentString.includes(",")) {
-    // 1. Split the string using the comma (',') delimiter
     const inMessage = split(currentString, ",");
 
-    // 2. Ensure we received at least two values
     if (inMessage.length >= 2) {
-      // 3. Convert the string values to integers and store them globally
       sensorValue1 = int(inMessage[0]);
       sensorValue2 = int(inMessage[1]);
 
-      if (mode === 'SETUP') {
+      // Handle interactions in INSTRUCTIONS mode
+      if (mode === 'INSTRUCTIONS') {
+         // If sensors change significantly, reset idle or transition
+         if (abs(sensorValue1 - lastSensorValue1) > 2 || (sensorValue2 === 0 && lastSensor2 !== 0)) {
+             // Interaction detected
+             lastInteractionTime = millis();
+             
+             // If button pressed (sensorValue2 == 0), maybe go to SETUP or start?
+             // "Press the button to start." implies it might start the timer?
+             // But usually we go to setup first.
+             if (sensorValue2 === 0 && lastSensor2 !== 0) {
+                 mode = 'SETUP';
+                 // Optionally start timer immediately if that was the instruction intent?
+                 // But text says "Press the button to start" which usually means start the timer.
+                 // However, "Turn the knob to add or reduce time" implies we are in setup logic.
+                 // So let's transition to SETUP so they can see the time.
+             }
+             
+             // If knob turned, transition to SETUP to show the change
+             if (abs(sensorValue1 - lastSensorValue1) > 2) {
+                 mode = 'SETUP';
+             }
+         }
+      }
+
+      if (mode === 'SETUP' || mode === 'INSTRUCTIONS') { 
+         // Allow updating duration input even if in instructions (so it's ready when we switch)
          if (sensorValue1 !== lastSensorValue1) {
              let newVal = max(1, sensorValue1);
              durationInput = newVal;
@@ -225,7 +313,6 @@ function gotData() {
          }
       }
 
-      // If sensorValue2 is 0, trigger start (debounced on change to 0)
       if (sensorValue2 === 0 && lastSensor2 !== 0) {
         if (mode === 'SETUP') {
           startNewTimer();
