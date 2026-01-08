@@ -20,6 +20,14 @@ let sensorValue1 = 0;
 let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
 
+// Landing Page Globals
+let landingBlobs = [];
+let lastInteractionTime = 0;
+let isTransitioning = false;
+let transitionStartTime = 0;
+const IDLE_THRESHOLD = 5000; // 5 seconds
+const TRANSITION_DURATION = 1500; // 1.5 seconds for wipe
+
 function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
@@ -42,6 +50,12 @@ function setup() {
   // Initialize currentDisplayRadius to match durationInput initially
   let maxRadius = min(width, height) / 2;
   currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
+
+  // Initialize Landing Blobs
+  for (let i = 0; i < 5; i++) {
+    landingBlobs.push(new LandingBlob());
+  }
+  lastInteractionTime = millis();
 }
 
 function startNewTimer() {
@@ -61,7 +75,14 @@ function startNewTimer() {
 }
 
 function draw() {
-  background(255);
+  // If in landing mode, background is handled by drawLanding to allow trails or transparency if needed
+  // For other modes, clear background
+  if (mode !== 'LANDING') {
+    background(255);
+  } else {
+    // Landing mode might redraw background every frame
+    background(255);
+  }
   
   if (mode === 'LANDING') {
     drawLanding();
@@ -93,6 +114,7 @@ function draw() {
 
   // Show incoming sensor values
   fill(100);
+  noStroke();
   textSize(12);
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
@@ -100,9 +122,49 @@ function draw() {
 }
 
 function drawLanding() {
-  fill(0);
-  textSize(32);
-  text("Press 's' to enter Full Screen", width / 2, height / 2);
+  // Draw floating blobs
+  noStroke();
+  for (let blob of landingBlobs) {
+    blob.update();
+    blob.display();
+  }
+
+  // Draw Text
+  fill(50);
+  noStroke();
+  textSize(24);
+  textLeading(36);
+  textAlign(CENTER, CENTER);
+  text("Turn the knob to add or reduce time.\nPress the button to start.", width / 2, height / 2);
+
+  // Check Idle Time
+  if (!isTransitioning) {
+    if (millis() - lastInteractionTime > IDLE_THRESHOLD) {
+      isTransitioning = true;
+      transitionStartTime = millis();
+    }
+  }
+
+  // Handle Transition
+  if (isTransitioning) {
+    let elapsed = millis() - transitionStartTime;
+    let progress = constrain(elapsed / TRANSITION_DURATION, 0, 1);
+
+    // Vertical wipe: rectangle rising from bottom
+    // We want to cover the screen with white to prepare for SETUP mode
+    let wipeHeight = height * progress;
+    fill(255); // White curtain
+    noStroke();
+    rect(0, height - wipeHeight, width, wipeHeight);
+
+    if (progress >= 1) {
+      mode = 'SETUP';
+      isTransitioning = false;
+      // Reset radius when entering setup
+      let maxRadius = min(width, height) / 2;
+      currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
+    }
+  }
 }
 
 function windowResized() {
@@ -115,6 +177,7 @@ function windowResized() {
   // If we exited full screen (and not just starting up), go back to landing
   if (!fullscreen() && mode !== 'LANDING') {
     mode = 'LANDING';
+    lastInteractionTime = millis();
   }
 }
 
@@ -150,12 +213,13 @@ function drawSetup() {
 
 
 function keyPressed() {
+  // Reset idle timer on any interaction
+  lastInteractionTime = millis();
+
   if (mode === 'LANDING') {
     if (key === 's' || key === 'S') {
       fullscreen(true);
       mode = 'SETUP';
-      // Reset radius when entering setup to ensure it starts from correct size (or animate from 0?)
-      // Let's keep it continuous or reset to current duration
       let maxRadius = min(width, height) / 2;
       currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
     }
@@ -188,6 +252,10 @@ function keyPressed() {
   }
 }
 
+function mouseMoved() {
+  lastInteractionTime = millis();
+}
+
 // ------------------------------------------------------------------
 
 // Called when a list of serial ports is returned
@@ -200,6 +268,13 @@ function gotList(thelist) {
 
 // Called when new data arrives from the serial port
 function gotData() {
+  // Reset idle timer on serial data (assuming interaction if values change?)
+  // If the sensors are noisy, this might prevent idle.
+  // However, the prompt says "Turn the knob... Press the button".
+  // Let's reset only if values change meaningfully?
+  // For now, let's assume any data is potentially interaction, but to be safe against noise,
+  // maybe only if values change.
+
   const currentString = serial.readLine(); // Read the entire incoming line
   trim(currentString); // Remove leading/trailing whitespace
 
@@ -214,8 +289,16 @@ function gotData() {
     // 2. Ensure we received at least two values
     if (inMessage.length >= 2) {
       // 3. Convert the string values to integers and store them globally
-      sensorValue1 = int(inMessage[0]);
-      sensorValue2 = int(inMessage[1]);
+      let newVal1 = int(inMessage[0]);
+      let newVal2 = int(inMessage[1]);
+
+      // Check for change to reset idle timer
+      if (newVal1 !== sensorValue1 || newVal2 !== sensorValue2) {
+          lastInteractionTime = millis();
+      }
+
+      sensorValue1 = newVal1;
+      sensorValue2 = newVal2;
 
       if (mode === 'SETUP') {
          if (sensorValue1 !== lastSensorValue1) {
@@ -233,5 +316,41 @@ function gotData() {
       }
       lastSensor2 = sensorValue2;
     }
+  }
+}
+
+// --- Helper Classes ---
+
+class LandingBlob {
+  constructor() {
+    this.x = random(width);
+    this.y = random(height);
+    this.size = random(100, 300);
+    this.xSpeed = random(-0.5, 0.5);
+    this.ySpeed = random(-0.5, 0.5);
+    this.color = [random(100, 200), random(150, 255), random(200, 255), 50]; // Soft cyan/blueish
+    this.noiseOffset = random(1000);
+  }
+
+  update() {
+    this.x += this.xSpeed;
+    this.y += this.ySpeed;
+
+    // Wrap around screen
+    if (this.x < -this.size) this.x = width + this.size;
+    if (this.x > width + this.size) this.x = -this.size;
+    if (this.y < -this.size) this.y = height + this.size;
+    if (this.y > height + this.size) this.y = -this.size;
+
+    // Subtle size pulse
+    this.noiseOffset += 0.01;
+    let pulse = map(noise(this.noiseOffset), 0, 1, 0.8, 1.2);
+    this.currentSize = this.size * pulse;
+  }
+
+  display() {
+    fill(this.color);
+    noStroke();
+    circle(this.x, this.y, this.currentSize);
   }
 }
