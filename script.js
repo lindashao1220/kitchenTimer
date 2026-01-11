@@ -133,10 +133,9 @@ function draw() {
          let timeStr = nf(m, 2) + ':' + nf(s, 2);
          
          // Ensure text is visible over bright blobs
-         stroke(0);
-         strokeWeight(4);
-         strokeJoin(ROUND);
+         noStroke();
          fill(50);
+         textFont('Josefin Sans');
          textSize(48);
          textAlign(CENTER, CENTER);
          text("Beyond " + timeStr, width/2, height/2);
@@ -147,6 +146,7 @@ function draw() {
   // Show incoming sensor values
   fill(100);
   noStroke();
+  textFont('Arial');
   textSize(12);
   textAlign(LEFT, BOTTOM);
   let statusText = `Sensor: ${sensorValue1}, ${sensorValue2}`;
@@ -157,6 +157,7 @@ function draw() {
 
 function drawLanding() {
   fill(0);
+  textFont('Josefin Sans');
   textSize(32);
   textAlign(CENTER, CENTER);
   text("Press 's' to enter Full Screen", width / 2, height / 2);
@@ -170,6 +171,7 @@ function drawInstructionsContent() {
     fill(50);
     noStroke();
     textAlign(CENTER, CENTER);
+    textFont('Josefin Sans');
     textSize(24);
     textLeading(36);
     text("Turn the knob to add or reduce time.\nPress the button to start.", width / 2, height / 2);
