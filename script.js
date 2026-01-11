@@ -7,7 +7,7 @@ let mode = 'LANDING'; // 'LANDING', 'INSTRUCTIONS', 'SETUP', or 'ACTIVE'
 // Timer settings
 let durationInput = 5; // The actual value in seconds
 let beyondInput = 2; // Beyond duration in minutes
-let lastSensorValue1 = -1; // To track sensor changes
+let lastRawSensorValue1 = -1; // To track sensor changes
 
 // Smooth transition for setup circle
 let currentDisplayRadius = 0;
@@ -24,7 +24,7 @@ const TRANSITION_DURATION = 1500; // 1.5 seconds for the wipe
 let serial;
 // !! IMPORTANT: Replace this
 const portName = "/dev/tty.usbmodem101";
-let sensorValue1 = 0;
+let sensorValue1 = 5;
 let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
 
@@ -235,9 +235,11 @@ function keyPressed() {
   } else if (mode === 'SETUP') {
     if (key === '1') {
       durationInput++;
+      sensorValue1 = durationInput;
     } else if (key === '2') {
       if (durationInput > 1) {
         durationInput--;
+        sensorValue1 = durationInput;
       }
     } else if (key === '3') {
       beyondInput++;
@@ -276,13 +278,13 @@ function gotData() {
     const inMessage = split(currentString, ",");
 
     if (inMessage.length >= 2) {
-      sensorValue1 = int(inMessage[0]);
+      let currentRaw1 = int(inMessage[0]);
       sensorValue2 = int(inMessage[1]);
 
       // Handle interactions in INSTRUCTIONS mode
       if (mode === 'INSTRUCTIONS') {
          // If sensors change significantly, reset idle or transition
-         if (abs(sensorValue1 - lastSensorValue1) > 2 || (sensorValue2 === 0 && lastSensor2 !== 0)) {
+         if (abs(currentRaw1 - lastRawSensorValue1) > 2 || (sensorValue2 === 0 && lastSensor2 !== 0)) {
              // Interaction detected
              lastInteractionTime = millis();
              
@@ -298,7 +300,7 @@ function gotData() {
              }
              
              // If knob turned, transition to SETUP to show the change
-             if (abs(sensorValue1 - lastSensorValue1) > 2) {
+             if (abs(currentRaw1 - lastRawSensorValue1) > 2) {
                  mode = 'SETUP';
              }
          }
@@ -307,14 +309,15 @@ function gotData() {
       if (mode === 'SETUP' || mode === 'INSTRUCTIONS') { 
          // Allow updating duration input even if in instructions (so it's ready when we switch)
          // SensorValue1 should be equivalent to key '1' (increment) and key '2' (decrement)
-         if (lastSensorValue1 !== -1 && sensorValue1 !== lastSensorValue1) {
-             if (sensorValue1 > lastSensorValue1) {
+         if (lastRawSensorValue1 !== -1 && currentRaw1 !== lastRawSensorValue1) {
+             if (currentRaw1 > lastRawSensorValue1) {
                  durationInput++;
-             } else if (sensorValue1 < lastSensorValue1) {
+             } else if (currentRaw1 < lastRawSensorValue1) {
                  if (durationInput > 1) durationInput--;
              }
+             sensorValue1 = durationInput;
          }
-         lastSensorValue1 = sensorValue1;
+         lastRawSensorValue1 = currentRaw1;
       }
 
       if (sensorValue2 === 0 && lastSensor2 !== 0) {
