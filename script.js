@@ -8,6 +8,7 @@ let mode = 'LANDING'; // 'LANDING', 'INSTRUCTIONS', 'SETUP', or 'ACTIVE'
 let durationInput = 5; // The actual value in seconds
 let beyondInput = 2; // Beyond duration in minutes
 let lastSensorValue1 = 5; // To track sensor changes
+let isTestMode = false; // Toggle with 't' to enable keyboard control for duration
 
 // Smooth transition for setup circle
 let currentDisplayRadius = 0;
@@ -148,7 +149,9 @@ function draw() {
   noStroke();
   textSize(12);
   textAlign(LEFT, BOTTOM);
-  text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
+  let statusText = `Sensor: ${sensorValue1}, ${sensorValue2}`;
+  if (isTestMode) statusText += " (TEST MODE)";
+  text(statusText, 10, height - 10);
   textAlign(CENTER, CENTER);
 }
 
@@ -212,10 +215,19 @@ function drawSetup() {
 
   textSize(16);
   text("Keys: 1/2 (Duration), 3/4 (Beyond), SPACE (Start)", width / 2, height / 2 + maxRadius + 80);
+
+  if (isTestMode) {
+    fill(255, 0, 0);
+    text("TEST MODE ENABLED", width / 2, height / 2 + maxRadius + 110);
+  }
 }
 
 
 function keyPressed() {
+  if (key === 't' || key === 'T') {
+    isTestMode = !isTestMode;
+  }
+
   if (mode === 'LANDING') {
     if (key === 's' || key === 'S') {
       fullscreen(true);
@@ -234,12 +246,16 @@ function keyPressed() {
       
   } else if (mode === 'SETUP') {
     if (key === '1') {
-      durationInput++;
-      sensorValue1 = durationInput;
-    } else if (key === '2') {
-      if (durationInput > 1) {
-        durationInput--;
+      if (isTestMode) {
+        durationInput++;
         sensorValue1 = durationInput;
+      }
+    } else if (key === '2') {
+      if (isTestMode) {
+        if (durationInput > 1) {
+          durationInput--;
+          sensorValue1 = durationInput;
+        }
       }
     } else if (key === '3') {
       beyondInput++;
@@ -308,7 +324,9 @@ function gotData() {
 
       if (mode === 'SETUP' || mode === 'INSTRUCTIONS') { 
          // Update duration input directly from sensor value
-         durationInput = sensorValue1;
+         if (!isTestMode) {
+             durationInput = sensorValue1;
+         }
 
          // Ensure minimum duration of 1 second
          if (durationInput < 1) durationInput = 1;
