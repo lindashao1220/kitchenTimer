@@ -34,11 +34,7 @@ function setup() {
   background(255);
 
   // Initialize landing blobs
-  for (let i = 0; i < 5; i++) {
-    // Random positions, nice pastel colors
-    let c = [random(200, 255), random(200, 255), random(200, 255)];
-    landingBlobs.push(new LandingBlob(random(width), random(height), random(50, 150), c));
-  }
+  landingBlobs.push(new LandingVisuals(width, height));
 
   // Initialize serial connection
   try {
@@ -151,6 +147,19 @@ function draw() {
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
   textAlign(CENTER, CENTER);
+
+  // Display the first sensor value in the middle of the canvas
+  fill(0); // Black drawing color
+  textSize(32);
+  text(sensorValue1, width / 2, height / 2 - 20);
+
+  // Display the second sensor value slightly below the first
+  text(sensorValue2, width / 2, height / 2 + 20);
+
+  // Optional: Display labels for clarity
+  textSize(16);
+  text("Sensor 1:", width / 2 - 80, height / 2 - 20);
+  text("Sensor 2:", width / 2 - 80, height / 2 + 20);
 }
 
 function drawLanding() {
@@ -257,6 +266,18 @@ function keyPressed() {
   }
 }
 
+// Send '1' to the Arduino when the mouse is pressed
+function mousePressed() {
+  serial.write("1");
+  console.log("Sent: 1");
+}
+
+// Send '0' to the Arduino when the mouse is released
+function mouseReleased() {
+  serial.write("0");
+  console.log("Sent: 0");
+}
+
 // ------------------------------------------------------------------
 
 function gotList(thelist) {
@@ -278,6 +299,9 @@ function gotData() {
     if (inMessage.length >= 2) {
       sensorValue1 = int(inMessage[0]);
       sensorValue2 = int(inMessage[1]);
+
+      // Log the updated values
+      console.log("Received: ", sensorValue1, ",", sensorValue2);
 
       // Handle interactions in INSTRUCTIONS mode
       if (mode === 'INSTRUCTIONS') {
