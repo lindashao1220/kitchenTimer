@@ -11,7 +11,9 @@ const METABALL_CONFIG = {
   ],
   // Base transparency (0.0 to 1.0)
   // Higher values make the blobs more opaque.
-  transparency: 0.9
+  transparency: 0.9,
+  // Number of metaballs to render
+  metaballCount: 12
 };
 
 /**
@@ -54,7 +56,7 @@ class CircleTimer {
     // We use a specialized "Shader" to draw them because it's much faster 
     // and allows for cool effects like blending and neon glows.
     
-    this.metaballCount = 12; // How many blobs?
+    this.metaballCount = METABALL_CONFIG.metaballCount; // How many blobs?
     
     // We create a separate graphics buffer (like a virtual canvas) to draw the shader.
     // We use the full window size so the blobs can eventually drift anywhere on screen.
