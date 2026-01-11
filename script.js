@@ -13,7 +13,7 @@ let lastSensorValue1 = -1; // To track sensor changes
 let currentDisplayRadius = 0;
 
 // Instructions Mode
-let landingBlobs = [];
+let landingVisuals;
 let lastInteractionTime = 0;
 let isTransitioning = false;
 let transitionStartTime = 0;
@@ -33,12 +33,8 @@ function setup() {
   canvas.parent("canvasContainer");
   background(255);
 
-  // Initialize landing blobs
-  for (let i = 0; i < 5; i++) {
-    // Random positions, nice pastel colors
-    let c = [random(200, 255), random(200, 255), random(200, 255)];
-    landingBlobs.push(new LandingBlob(random(width), random(height), random(50, 150), c));
-  }
+  // Initialize landing visuals (handles full screen wandering metaballs)
+  landingVisuals = new LandingVisuals(width, height);
 
   // Initialize serial connection
   try {
@@ -164,9 +160,9 @@ function drawLanding() {
 }
 
 function drawInstructionsContent() {
-    for (let b of landingBlobs) {
-        b.update();
-        b.draw();
+    if (landingVisuals) {
+        landingVisuals.update();
+        landingVisuals.draw();
     }
     fill(50);
     noStroke();
