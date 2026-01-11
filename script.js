@@ -13,7 +13,7 @@ let lastSensorValue1 = -1; // To track sensor changes
 let currentDisplayRadius = 0;
 
 // Instructions Mode
-let landingBlobs = [];
+let landingVisuals;
 let lastInteractionTime = 0;
 let isTransitioning = false;
 let transitionStartTime = 0;
@@ -33,12 +33,8 @@ function setup() {
   canvas.parent("canvasContainer");
   background(255);
 
-  // Initialize landing blobs
-  for (let i = 0; i < 5; i++) {
-    // Random positions, nice pastel colors
-    let c = [random(200, 255), random(200, 255), random(200, 255)];
-    landingBlobs.push(new LandingBlob(random(width), random(height), random(50, 150), c));
-  }
+  // Initialize landing visuals (handles full screen wandering metaballs)
+  landingVisuals = new LandingVisuals(width, height);
 
   // Initialize serial connection
   try {
@@ -51,6 +47,9 @@ function setup() {
     console.log("Serial Port not available or failed to initialize: ", e);
   }
   
+  // Make gotData accessible globally for testing if needed
+  window.gotData = gotData;
+
   textSize(32);
   textAlign(CENTER, CENTER);
   
@@ -161,9 +160,9 @@ function drawLanding() {
 }
 
 function drawInstructionsContent() {
-    for (let b of landingBlobs) {
-        b.update();
-        b.draw();
+    if (landingVisuals) {
+        landingVisuals.update();
+        landingVisuals.draw();
     }
     fill(50);
     noStroke();
@@ -267,8 +266,9 @@ function gotList(thelist) {
 }
 
 function gotData() {
-  const currentString = serial.readLine(); 
-  trim(currentString); 
+  let currentString = serial.readLine(); 
+  if (!currentString) return;
+  currentString = trim(currentString);
 
   if (!currentString) return;
 
@@ -306,11 +306,15 @@ function gotData() {
 
       if (mode === 'SETUP' || mode === 'INSTRUCTIONS') { 
          // Allow updating duration input even if in instructions (so it's ready when we switch)
-         if (sensorValue1 !== lastSensorValue1) {
-             let newVal = max(1, sensorValue1);
-             durationInput = newVal;
-             lastSensorValue1 = sensorValue1;
+         // SensorValue1 should be equivalent to key '1' (increment) and key '2' (decrement)
+         if (lastSensorValue1 !== -1 && sensorValue1 !== lastSensorValue1) {
+             if (sensorValue1 > lastSensorValue1) {
+                 durationInput++;
+             } else if (sensorValue1 < lastSensorValue1) {
+                 if (durationInput > 1) durationInput--;
+             }
          }
+         lastSensorValue1 = sensorValue1;
       }
 
       if (sensorValue2 === 0 && lastSensor2 !== 0) {
