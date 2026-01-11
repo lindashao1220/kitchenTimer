@@ -51,6 +51,9 @@ function setup() {
     console.log("Serial Port not available or failed to initialize: ", e);
   }
   
+  // Make gotData accessible globally for testing if needed
+  window.gotData = gotData;
+
   textSize(32);
   textAlign(CENTER, CENTER);
   
@@ -267,8 +270,9 @@ function gotList(thelist) {
 }
 
 function gotData() {
-  const currentString = serial.readLine(); 
-  trim(currentString); 
+  let currentString = serial.readLine();
+  if (!currentString) return;
+  currentString = trim(currentString);
 
   if (!currentString) return;
 
@@ -306,11 +310,15 @@ function gotData() {
 
       if (mode === 'SETUP' || mode === 'INSTRUCTIONS') { 
          // Allow updating duration input even if in instructions (so it's ready when we switch)
-         if (sensorValue1 !== lastSensorValue1) {
-             let newVal = max(1, sensorValue1);
-             durationInput = newVal;
-             lastSensorValue1 = sensorValue1;
+         // SensorValue1 should be equivalent to key '1' (increment) and key '2' (decrement)
+         if (lastSensorValue1 !== -1 && sensorValue1 !== lastSensorValue1) {
+             if (sensorValue1 > lastSensorValue1) {
+                 durationInput++;
+             } else if (sensorValue1 < lastSensorValue1) {
+                 if (durationInput > 1) durationInput--;
+             }
          }
+         lastSensorValue1 = sensorValue1;
       }
 
       if (sensorValue2 === 0 && lastSensor2 !== 0) {
