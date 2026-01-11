@@ -145,9 +145,9 @@ function draw() {
   }
 
   // Show incoming sensor values
-  fill(100);
+  fill(0);
   noStroke();
-  textSize(12);
+  textSize(16);
   textAlign(LEFT, BOTTOM);
   text(`Sensor: ${sensorValue1}, ${sensorValue2}`, 10, height - 10);
   textAlign(CENTER, CENTER);
@@ -267,17 +267,19 @@ function gotList(thelist) {
 }
 
 function gotData() {
-  const currentString = serial.readLine(); 
-  trim(currentString); 
+  let currentString = serial.readLine();
+  currentString = trim(currentString);
 
   if (!currentString) return;
 
   if (currentString.includes(",")) {
-    const inMessage = split(currentString, ",");
+    let inMessage = split(currentString, ",");
 
     if (inMessage.length >= 2) {
       sensorValue1 = int(inMessage[0]);
       sensorValue2 = int(inMessage[1]);
+
+      console.log("Received: ", sensorValue1, ",", sensorValue2);
 
       // Handle interactions in INSTRUCTIONS mode
       if (mode === 'INSTRUCTIONS') {
