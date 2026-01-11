@@ -23,7 +23,7 @@ const TRANSITION_DURATION = 1500; // 1.5 seconds for the wipe
 // Serial communication globals
 let serial;
 // !! IMPORTANT: Replace this
-const portName = "/dev/tty.usbmodem1101";
+const portName = "/dev/tty.usbmodem101";
 let sensorValue1 = 0;
 let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
