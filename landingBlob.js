@@ -9,7 +9,7 @@ class LandingVisuals {
     
     // --- Visual Settings ---
     // Same as CircleTimer but maybe with some tweaks if needed.
-    this.metaballCount = 12; // Use same count for consistency
+    this.metaballCount = METABALL_CONFIG.metaballCount; // Use same count for consistency
     this.neonLayers = 5;
     this.blobAlpha = METABALL_CONFIG.transparency;
     this.fillColor = [90, 100, 22, 128]; // Default base color

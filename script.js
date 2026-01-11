@@ -1,12 +1,28 @@
 //more reference: https://openprocessing.org/sketch/773556
 //https://editor.p5js.org/Sophi333/sketches/2f2tUOTEB
 
+// ==========================================
+//               CONFIGURATION
+// ==========================================
+
+// !! IMPORTANT: Replace this with your serial port
+const portName = "/dev/tty.usbmodem101";
+
+// Timer settings
+let durationInput = 5;   // Default timer duration in seconds
+let beyondInput = 29;    // Duration of the "Beyond" phase in minutes
+
+// Interaction settings
+const INSTRUCTIONS_IDLE_TIME = 5000; // Time (ms) to wait before showing Setup
+const TRANSITION_DURATION = 1500;    // Duration (ms) of the wipe animation
+
+// ==========================================
+//             GLOBAL VARIABLES
+// ==========================================
+
 let timer = null;
 let mode = 'LANDING'; // 'LANDING', 'INSTRUCTIONS', 'SETUP', or 'ACTIVE'
 
-// Timer settings
-let durationInput = 5; // The actual value in seconds
-let beyondInput = 29; // Beyond duration in minutes
 let lastSensorValue1 = 5; // To track sensor changes
 let isTestMode = false; // Toggle with 't' to enable keyboard control for duration
 
@@ -18,17 +34,22 @@ let landingVisuals;
 let lastInteractionTime = 0;
 let isTransitioning = false;
 let transitionStartTime = 0;
-const INSTRUCTIONS_IDLE_TIME = 5000; // 5 seconds
-const TRANSITION_DURATION = 1500; // 1.5 seconds for the wipe
 
 // Serial communication globals
 let serial;
-// !! IMPORTANT: Replace this
-const portName = "/dev/tty.usbmodem101";
 let sensorValue1 = 5;
 let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
 
+// ==========================================
+//             MAIN FUNCTIONS
+// ==========================================
+
+/**
+ * setup()
+ * This function runs once when the program starts.
+ * It initializes the canvas, serial connection, and other visuals.
+ */
 function setup() {
   let canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("canvasContainer");
@@ -59,6 +80,11 @@ function setup() {
   currentDisplayRadius = map(durationInput, 0, 60, 0, maxRadius);
 }
 
+/**
+ * startNewTimer()
+ * Helper function to create and start a new CircleTimer.
+ * It uses the current durationInput to set the timer's length.
+ */
 function startNewTimer() {
   // durationInput is now a number in seconds
   let duration = durationInput || 5;
@@ -75,6 +101,11 @@ function startNewTimer() {
   mode = 'ACTIVE';
 }
 
+/**
+ * draw()
+ * This function loops ~60 times per second to update the screen.
+ * It handles the different "modes" (LANDING, INSTRUCTIONS, SETUP, ACTIVE).
+ */
 function draw() {
   background(255);
   
@@ -155,6 +186,10 @@ function draw() {
   textAlign(CENTER, CENTER);
 }
 
+/**
+ * drawLanding()
+ * Renders the initial landing page text.
+ */
 function drawLanding() {
   fill(0);
   textFont('Josefin Sans');
@@ -163,6 +198,10 @@ function drawLanding() {
   text("Press 's' to enter Full Screen", width / 2, height / 2);
 }
 
+/**
+ * drawInstructionsContent()
+ * Renders the background blobs and text for the Instructions mode.
+ */
 function drawInstructionsContent() {
     if (landingVisuals) {
         landingVisuals.update();
@@ -190,6 +229,11 @@ function windowResized() {
   }
 }
 
+/**
+ * drawSetup()
+ * Renders the setup screen where the user selects the duration.
+ * Shows a preview circle and current time setting.
+ */
 function drawSetup() {
   // Calculate target radius
   let maxRadius = min(width, height) / 2;
@@ -224,7 +268,10 @@ function drawSetup() {
   }
 }
 
-
+/**
+ * keyPressed()
+ * Handles keyboard input for testing and navigation.
+ */
 function keyPressed() {
   if (key === 't' || key === 'T') {
     isTestMode = !isTestMode;
@@ -287,6 +334,11 @@ function gotList(thelist) {
   }
 }
 
+/**
+ * gotData()
+ * Callback for when data is received from the serial port.
+ * Parses the string "val1,val2" into sensorValue1 and sensorValue2.
+ */
 function gotData() {
   let currentString = serial.readLine(); 
   if (!currentString) return;
