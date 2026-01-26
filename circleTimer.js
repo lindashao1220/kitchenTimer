@@ -4,14 +4,14 @@ const METABALL_CONFIG = {
   // Array of RGB values for individual metaballs
   // These are the "electric" colors: Cyan, Magenta, Electric Blue, Violet
   colors: [
-      [0, 255, 255],   // Cyan
-      [255, 0, 255],   // Magenta
-      [50, 100, 255],  // Electric Blue
-      [200, 50, 200]   // Violet
+      [0, 255, 255, 100],   // Cyan
+      [255, 0, 255, 100],   // Magenta
+      [50, 100, 255, 100],  // Electric Blue
+      [200, 50, 200, 100]   // Violet
   ],
   // Base transparency (0.0 to 1.0)
   // Higher values make the blobs more opaque.
-  transparency: 0.9
+  transparency: 0.8
 };
 
 /**

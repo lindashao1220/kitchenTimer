@@ -24,7 +24,7 @@ const TRANSITION_DURATION = 1500; // 1.5 seconds for the wipe
 // Serial communication globals
 let serial;
 // !! IMPORTANT: Replace this
-const portName = "/dev/tty.usbmodem101";
+const portName = "/dev/tty.usbmodem1101";
 let sensorValue1 = 5;
 let sensorValue2 = 0;
 let lastSensor2 = null; // for simple debounce on start trigger
@@ -172,8 +172,8 @@ function drawInstructionsContent() {
     noStroke();
     textAlign(CENTER, CENTER);
     textFont('Josefin Sans');
-    textSize(24);
-    textLeading(36);
+    textSize(30);
+    textLeading(43);
     text("Turn the knob to add or reduce time.\nPress the button to start.", width / 2, height / 2);
 }
 

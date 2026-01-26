@@ -31,7 +31,7 @@ class LandingVisuals {
 
     for (let i = 0; i < this.metaballCount; i++) {
       // Blobs can range in size
-      const size = random(30, 80); 
+      const size = random(70, 100); 
       
       this.metaballs.push({
         pos: createVector(random(this.width), random(this.height)),
